@@ -24,13 +24,13 @@
     color: var(--charcoal);
     font-family: 'Jost', sans-serif;
   }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 32px 20px 100px; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 20px 100px; }
   .hero {
     position: relative;
     width: 100%;
     max-width: 640px;
     margin: 0 auto;
-    height: 280px;
+    height: 420px;
     background-image: url('assets/hero.jpg');
     background-size: cover;
     background-position: center 30%;
@@ -41,11 +41,11 @@
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(to bottom, rgba(26,20,16,0.05) 0%, rgba(26,20,16,0.35) 55%, rgba(26,20,16,0.92) 100%);
+    background: linear-gradient(to bottom, rgba(26,20,16,0.15) 0%, rgba(26,20,16,0.35) 35%, rgba(26,20,16,0.88) 72%, rgba(26,20,16,0.97) 100%);
   }
   .hero-text {
     position: absolute;
-    left: 0; right: 0; bottom: 22px;
+    left: 0; right: 0; bottom: 20px;
     text-align: center;
     z-index: 1;
     padding: 0 20px;
@@ -54,10 +54,10 @@
     font-family: 'Cormorant Garamond', serif;
     font-style: italic;
     font-weight: 600;
-    font-size: 38px;
+    font-size: 40px;
     color: var(--cream);
     line-height: 1.1;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    text-shadow: 0 2px 10px rgba(0,0,0,0.4);
   }
   .hero-eyebrow {
     margin-top: 8px;
@@ -66,7 +66,20 @@
     text-transform: uppercase;
     color: var(--gold-light);
     font-weight: 500;
+    margin-bottom: 22px;
   }
+  .toggle {
+    display: flex; gap: 4px; background: rgba(245,240,232,0.14);
+    border: 1px solid rgba(245,240,232,0.25);
+    padding: 4px; border-radius: 10px; max-width: 640px; margin: 0 auto;
+    backdrop-filter: blur(2px);
+  }
+  .toggle button {
+    flex: 1; padding: 9px 0; border-radius: 8px; border: none;
+    font-family: 'Jost', sans-serif; font-weight: 500; font-size: 12.5px;
+    letter-spacing: 0.02em; cursor: pointer; background: transparent; color: var(--cream);
+  }
+  .toggle button.active { background: var(--gold); color: var(--charcoal); }
   .title {
     font-family: 'Cormorant Garamond', serif;
     font-style: italic;
@@ -80,16 +93,6 @@
     font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--gold); font-weight: 500;
   }
-  .toggle {
-    display: flex; gap: 4px; background: rgba(44,32,22,0.06);
-    padding: 4px; border-radius: 10px; margin: 24px 0;
-  }
-  .toggle button {
-    flex: 1; padding: 9px 0; border-radius: 8px; border: none;
-    font-family: 'Jost', sans-serif; font-weight: 500; font-size: 13px;
-    letter-spacing: 0.03em; cursor: pointer; background: transparent; color: var(--bark);
-  }
-  .toggle button.active { background: var(--bark); color: var(--cream); }
   .status-line { font-size: 13px; color: var(--bark); opacity: 0.7; margin-bottom: 18px; }
   .category { margin-bottom: 22px; }
   .cat-label {
@@ -185,15 +188,15 @@
   <div class="hero-text">
     <div class="hero-title">Waxing Lounge Inventory</div>
     <div class="hero-eyebrow">Cio Bela Salons · For Internal Use Only</div>
+    <div class="toggle">
+      <button id="tab-team" class="active">Team Checklist</button>
+      <button id="tab-owner">Owner Dashboard</button>
+      <button id="tab-history">Order History</button>
+    </div>
   </div>
 </div>
 
 <div class="wrap">
-  <div class="toggle">
-    <button id="tab-team" class="active">Team Checklist</button>
-    <button id="tab-owner">Owner Dashboard</button>
-    <button id="tab-history">Order History</button>
-  </div>
 
   <div id="loading" class="status-line">Loading…</div>
 
