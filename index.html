@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="light only" />
+<title>Waxing Lounge Inventory — Cio Bela Salons</title>
+<style>
+  html { color-scheme: light only; }
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,500;1,600&family=Jost:wght@400;500;600&display=swap');
+
+  :root {
+    --cream: #F5F0E8;
+    --bark: #2C2016;
+    --gold: #B8935A;
+    --gold-light: #D4B896;
+    --charcoal: #1A1410;
+    --error: #B84A3A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--cream);
+    color: var(--charcoal);
+    font-family: 'Jost', sans-serif;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 32px 20px 100px; }
+  .title {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 600;
+    font-size: 34px;
+    color: var(--bark);
+    line-height: 1.1;
+  }
+  .rule { height: 2px; width: 56px; background: var(--gold); margin: 10px 0 12px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--gold); font-weight: 500;
+  }
+  .toggle {
+    display: flex; gap: 4px; background: rgba(44,32,22,0.06);
+    padding: 4px; border-radius: 10px; margin: 24px 0;
+  }
+  .toggle button {
+    flex: 1; padding: 9px 0; border-radius: 8px; border: none;
+    font-family: 'Jost', sans-serif; font-weight: 500; font-size: 13px;
+    letter-spacing: 0.03em; cursor: pointer; background: transparent; color: var(--bark);
+  }
+  .toggle button.active { background: var(--bark); color: var(--cream); }
+  .status-line { font-size: 13px; color: var(--bark); opacity: 0.7; margin-bottom: 18px; }
+  .category { margin-bottom: 22px; }
+  .cat-label {
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--gold); font-weight: 600; margin-bottom: 10px;
+  }
+  .item-row {
+    display: flex; align-items: center; gap: 14px; padding: 11px 4px;
+    border-bottom: 1px solid rgba(44,32,22,0.08); cursor: pointer;
+  }
+  .item-name { font-size: 15px; }
+  .item-name.checked { opacity: 0.6; text-decoration: line-through; }
+  .seal {
+    width: 26px; height: 26px; border-radius: 9999px; border: 2px solid var(--gold);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    cursor: pointer; background: transparent; transition: all 150ms ease;
+  }
+  .seal.checked {
+    background: radial-gradient(circle at 35% 30%, var(--gold-light), var(--gold));
+    box-shadow: 0 1px 3px rgba(44,32,22,0.35);
+  }
+  .seal.small { width: 20px; height: 20px; }
+  .seal svg { display: none; }
+  .seal.checked svg { display: block; }
+
+  .empty-box {
+    padding: 40px 20px; text-align: center;
+    border: 1px dashed var(--gold-light); border-radius: 12px;
+  }
+  .empty-title { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 20px; color: var(--bark); margin-bottom: 6px; }
+  .empty-sub { font-size: 13px; opacity: 0.65; }
+
+  .actions { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;
+    border: 1px solid var(--gold); background: var(--gold); color: var(--charcoal);
+    font-size: 12.5px; font-weight: 500; cursor: pointer; font-family: 'Jost', sans-serif;
+  }
+  .btn.muted { background: transparent; color: var(--bark); }
+  .btn:disabled { border-color: rgba(44,32,22,0.15); background: transparent; color: rgba(44,32,22,0.35); cursor: not-allowed; }
+  .btn-sm { padding: 5px 10px; border-radius: 6px; font-size: 12px; }
+
+  .note { font-size: 11px; opacity: 0.55; margin-bottom: 20px; line-height: 1.5; }
+
+  .owner-item {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+    background: white; border: 1px solid rgba(44,32,22,0.1); border-radius: 10px; margin-bottom: 10px;
+  }
+  .owner-item .name { font-size: 14px; font-weight: 500; }
+  .owner-item input[type="text"] {
+    margin-top: 4px; width: 100%; font-size: 12px; border: none;
+    border-bottom: 1px solid var(--gold-light); outline: none; padding: 3px 0;
+    background: transparent; font-family: 'Jost', sans-serif;
+  }
+  .stepper { display: flex; align-items: center; gap: 6px; }
+  .step-btn {
+    width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--gold-light);
+    background: transparent; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--bark);
+  }
+  .qty { font-size: 13px; min-width: 16px; text-align: center; }
+
+  .lock-box { padding: 40px 20px; text-align: center; border: 1px dashed var(--gold-light); border-radius: 12px; }
+  .lock-title { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 20px; color: var(--bark); margin-bottom: 14px; }
+  .lock-input {
+    font-size: 18px; letter-spacing: 0.3em; text-align: center; padding: 10px 14px;
+    border-radius: 8px; border: 1px solid var(--gold-light); outline: none; width: 140px;
+    font-family: 'Jost', sans-serif; background: white;
+  }
+  .lock-input.error { border-color: var(--error); }
+  .lock-error { font-size: 12px; color: var(--error); margin-top: 10px; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--bark); color: var(--cream); padding: 10px 18px; border-radius: 8px;
+    font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,0.25); display: none;
+  }
+  .hidden { display: none !important; }
+  .total-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--bark); color: var(--cream);
+    padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;
+    font-family: 'Jost', sans-serif; box-shadow: 0 -4px 14px rgba(0,0,0,0.2);
+    z-index: 10;
+  }
+  .total-bar .label { font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.75; }
+  .total-bar .amount { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 22px; font-weight: 600; color: var(--gold-light); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">Waxing Lounge Inventory</div>
+  <div class="rule"></div>
+  <div class="eyebrow">Cio Bela Salons · For Internal Use Only</div>
+
+  <div class="toggle">
+    <button id="tab-team" class="active">Team Checklist</button>
+    <button id="tab-owner">Owner Dashboard</button>
+  </div>
+
+  <div id="loading" class="status-line">Loading…</div>
+
+  <div id="team-view"></div>
+  <div id="owner-lock" class="hidden">
+    <div class="lock-box">
+      <div class="lock-title">Owner access only</div>
+      <input class="lock-input" id="passcode-input" type="password" inputmode="numeric" placeholder="Passcode" />
+      <div style="margin-top:14px;"><button class="btn" id="unlock-btn">Unlock</button></div>
+      <div class="lock-error hidden" id="passcode-error">That's not the right passcode.</div>
+    </div>
+  </div>
+  <div id="owner-view" class="hidden"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="total-bar hidden" id="total-bar">
+  <span class="label">Flagged total</span>
+  <span class="amount" id="total-amount">$0.00</span>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, doc, onSnapshot, setDoc, getDoc
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBGRiDz7_PvTNvz1ItFo3CcApVhe5TCI5g",
+    authDomain: "cio-bela-wax-inventory.firebaseapp.com",
+    projectId: "cio-bela-wax-inventory",
+    storageBucket: "cio-bela-wax-inventory.firebasestorage.app",
+    messagingSenderId: "279708252494",
+    appId: "1:279708252494:web:e509ead05f03dfd526461f"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const stateDocRef = doc(db, "inventory", "state");
+
+  const OWNER_PASSCODE = "4834";
+  const ASIN_RE = /^[A-Z0-9]{10}$/i;
+
+  const CATEGORIES = [
+    { id: "essentials", label: "Waxing & Application Essentials", items: [
+      { id: "wax-warmer", name: "Double wax warmer" },
+      { id: "hard-soft-wax", name: "Hard / Soft wax" },
+      { id: "wax-strips", name: "Waxing strips" },
+      { id: "wood-spatulas", name: "Wooden spatulas" },
+    ]},
+    { id: "care", label: "Pre & Post-Care Solutions", items: [
+      { id: "pre-cleanse", name: "Pre cleanse" },
+      { id: "pre-wax-oil", name: "Pre wax oil" },
+      { id: "baby-powder", name: "Baby powder" },
+      { id: "post-wax-spray", name: "Post wax — hypochlorous spray" },
+      { id: "calming-cream", name: "Calming cream" },
+      { id: "witch-hazel", name: "Witch hazel" },
+    ]},
+    { id: "sanitation", label: "Sanitation & Safety Protocol", items: [
+      { id: "epa-disinfectant", name: "EPA-registered disinfectant" },
+      { id: "barbicide", name: "Barbicide" },
+      { id: "barbicide-jar", name: "Barbicide jar" },
+      { id: "hand-sanitizer", name: "Hand sanitizer" },
+      { id: "hazmat-bin", name: "Hazardous waste bin" },
+      { id: "nitrile-gloves", name: "Nitrile gloves" },
+    ]},
+    { id: "tools", label: "Professional Tools", items: [
+      { id: "tweezers", name: "Tweezers" },
+      { id: "brow-scissors", name: "Brow scissors" },
+      { id: "handheld-mirror", name: "Handheld mirror" },
+      { id: "handheld-fan", name: "Handheld fan" },
+      { id: "mapping-thread", name: "Mapping thread" },
+      { id: "step-stool", name: "Step stool" },
+    ]},
+    { id: "disposables", label: "Disposables & Linens", items: [
+      { id: "bed-paper", name: "Bed paper" },
+      { id: "cotton-rounds", name: "Cotton rounds" },
+      { id: "cotton-balls", name: "Cotton balls" },
+      { id: "gauze", name: "Gauze" },
+    ]},
+  ];
+  const ALL_ITEMS = CATEGORIES.flatMap(c => c.items.map(i => ({ ...i, category: c.label })));
+
+  function defaultState() {
+    const s = {};
+    ALL_ITEMS.forEach(i => { s[i.id] = { checked: false, qty: 1, link: "", price: 0 }; });
+    return s;
+  }
+
+  let state = defaultState();
+  let view = "team";
+  let unlocked = false;
+  let suppressNextRenderConflict = false;
+
+  const teamViewEl = document.getElementById("team-view");
+  const ownerViewEl = document.getElementById("owner-view");
+  const ownerLockEl = document.getElementById("owner-lock");
+  const loadingEl = document.getElementById("loading");
+  const toastEl = document.getElementById("toast");
+
+  function flashToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.style.display = "block";
+    setTimeout(() => { toastEl.style.display = "none"; }, 2200);
+  }
+
+  async function commit(next) {
+    state = next;
+    try {
+      await setDoc(stateDocRef, next, { merge: true });
+    } catch (e) {
+      console.error("Save failed", e);
+      flashToast("Couldn't save — check your connection");
+    }
+  }
+
+  function toggleItem(id) {
+    const next = { ...state, [id]: { ...state[id], checked: !state[id].checked } };
+    commit(next);
+  }
+
+  function updateQty(id, delta) {
+    const cur = state[id].qty || 1;
+    const qty = Math.max(1, cur + delta);
+    commit({ ...state, [id]: { ...state[id], qty } });
+    renderOwner();
+  }
+
+  function updateLink(id, link) {
+    state = { ...state, [id]: { ...state[id], link } };
+    setDoc(stateDocRef, state, { merge: true }).catch(e => console.error(e));
+  }
+
+  function updatePrice(id, priceStr) {
+    const price = Math.max(0, parseFloat(priceStr) || 0);
+    state = { ...state, [id]: { ...state[id], price } };
+    setDoc(stateDocRef, state, { merge: true }).catch(e => console.error(e));
+    renderTeam();
+    if (view === "owner") renderOwner();
+  }
+
+  function sealHtml(checked, size = 26) {
+    return `<div class="seal ${checked ? 'checked' : ''}" style="width:${size}px;height:${size}px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1A1410" stroke-width="3">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    </div>`;
+  }
+
+  function renderTeam() {
+    const flagged = ALL_ITEMS.filter(i => state[i.id]?.checked);
+    let html = `<div class="status-line">${
+      flagged.length === 0
+        ? "Everything's stocked. Check an item the moment it's running low."
+        : flagged.length + " item" + (flagged.length === 1 ? "" : "s") + " flagged for reorder."
+    }</div>`;
+
+    CATEGORIES.forEach(cat => {
+      html += `<div class="category"><div class="cat-label">${cat.label}</div>`;
+      cat.items.forEach(item => {
+        const checked = !!state[item.id]?.checked;
+        html += `<div class="item-row" data-id="${item.id}">
+          ${sealHtml(checked)}
+          <span class="item-name ${checked ? 'checked' : ''}">${item.name}</span>
+        </div>`;
+      });
+      html += `</div>`;
+    });
+    teamViewEl.innerHTML = html;
+    teamViewEl.querySelectorAll(".item-row").forEach(row => {
+      row.addEventListener("click", () => toggleItem(row.dataset.id));
+    });
+    updateTotalBar(flagged);
+  }
+
+  function updateTotalBar(flagged) {
+    const totalBar = document.getElementById("total-bar");
+    const totalAmount = document.getElementById("total-amount");
+    if (flagged.length === 0) {
+      totalBar.classList.add("hidden");
+      return;
+    }
+    const total = flagged.reduce((sum, i) => sum + (state[i.id].price || 0) * (state[i.id].qty || 1), 0);
+    totalAmount.textContent = "$" + total.toFixed(2);
+    totalBar.classList.remove("hidden");
+  }
+
+  function renderOwner() {
+    const flagged = ALL_ITEMS.filter(i => state[i.id]?.checked);
+    if (flagged.length === 0) {
+      ownerViewEl.innerHTML = `<div class="empty-box">
+        <div class="empty-title">Nothing flagged yet</div>
+        <div class="empty-sub">Once the team checks items off, they'll show up here to order.</div>
+      </div>`;
+      return;
+    }
+
+    const asinItems = flagged.filter(i => ASIN_RE.test((state[i.id].link || "").trim()));
+
+    let html = `<div class="actions">
+      <button class="btn" id="copy-list-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path></svg> Copy order list</button>
+      <button class="btn" id="amazon-cart-btn" ${asinItems.length === 0 ? "disabled" : ""}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"></path></svg> Amazon cart (${asinItems.length})</button>
+      <span id="clear-controls"><button class="btn muted" id="mark-ordered-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6M23 20v-6h-6"></path><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"></path></svg> Mark ordered</button></span>
+      <span id="clear-all-controls"><button class="btn muted" id="clear-all-btn" style="border-color:var(--error);color:var(--error);">Clear all</button></span>
+    </div>
+    <div class="note">For Amazon items, paste the product's ASIN (found in its product URL) below — the cart button adds every ASIN item at once. You'll need to be signed into Amazon in this tab. For anything else, use "Copy order list" and paste it into that site.</div>`;
+
+    flagged.forEach(item => {
+      const link = state[item.id]?.link || "";
+      const qty = state[item.id]?.qty || 1;
+      const price = state[item.id]?.price || 0;
+      html += `<div class="owner-item" data-id="${item.id}">
+        ${sealHtml(true, 20)}
+        <div style="flex:1;min-width:0;">
+          <div class="name">${item.name}</div>
+          <input type="text" placeholder="ASIN or product link (optional)" value="${link.replace(/"/g, '&quot;')}" data-link-id="${item.id}" />
+        </div>
+        <div style="display:flex;align-items:center;gap:2px;">
+          <span style="font-size:12px;opacity:0.6;">$</span>
+          <input type="text" inputmode="decimal" placeholder="0.00" value="${price ? price.toFixed(2) : ''}" data-price-id="${item.id}" style="width:52px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:12px;padding:3px 0;" />
+        </div>
+        <div class="stepper">
+          <button class="step-btn" data-qty-down="${item.id}">−</button>
+          <span class="qty">${qty}</span>
+          <button class="step-btn" data-qty-up="${item.id}">+</button>
+        </div>
+      </div>`;
+    });
+
+    ownerViewEl.innerHTML = html;
+    updateTotalBar(flagged);
+
+    ownerViewEl.querySelectorAll(".seal").forEach((seal, idx) => {
+      seal.addEventListener("click", () => toggleItem(flagged[idx].id));
+    });
+    ownerViewEl.querySelectorAll("[data-qty-down]").forEach(b => b.addEventListener("click", () => updateQty(b.dataset.qtyDown, -1)));
+    ownerViewEl.querySelectorAll("[data-qty-up]").forEach(b => b.addEventListener("click", () => updateQty(b.dataset.qtyUp, 1)));
+    ownerViewEl.querySelectorAll("[data-link-id]").forEach(input => {
+      input.addEventListener("change", () => updateLink(input.dataset.linkId, input.value));
+    });
+    ownerViewEl.querySelectorAll("[data-price-id]").forEach(input => {
+      input.addEventListener("change", () => updatePrice(input.dataset.priceId, input.value));
+    });
+
+    document.getElementById("copy-list-btn").addEventListener("click", async () => {
+      const lines = flagged.map(i => `- ${i.name} x${state[i.id].qty || 1}`);
+      const text = `Cio Bela Waxing Lounge — Order List\n${new Date().toLocaleDateString()}\n\n${lines.join("\n")}`;
+      try {
+        await navigator.clipboard.writeText(text);
+        flashToast("Order list copied");
+      } catch (e) {
+        flashToast("Couldn't copy — select and copy manually");
+      }
+    });
+
+    document.getElementById("amazon-cart-btn").addEventListener("click", () => {
+      if (asinItems.length === 0) return;
+      const params = asinItems.map((i, idx) => {
+        const n = idx + 1;
+        const asin = state[i.id].link.trim();
+        const q = state[i.id].qty || 1;
+        return `ASIN.${n}=${encodeURIComponent(asin)}&Quantity.${n}=${q}`;
+      }).join("&");
+      window.open(`https://www.amazon.com/gp/aws/cart/add.html?${params}`, "_blank");
+    });
+
+    document.getElementById("mark-ordered-btn").addEventListener("click", () => {
+      const controls = document.getElementById("clear-controls");
+      controls.innerHTML = `<span style="font-size:12px;opacity:0.7;">Clear all ${flagged.length} flags?</span>
+        <button class="btn-sm" id="confirm-yes" style="background:var(--bark);color:var(--cream);border:none;margin-left:6px;">Yes</button>
+        <button class="btn-sm" id="confirm-no" style="background:transparent;color:var(--bark);border:1px solid var(--bark);margin-left:4px;">✕</button>`;
+      document.getElementById("confirm-yes").addEventListener("click", () => {
+        const next = { ...state };
+        flagged.forEach(i => { next[i.id] = { ...next[i.id], checked: false }; });
+        commit(next);
+        flashToast("Cleared — flags reset");
+      });
+      document.getElementById("confirm-no").addEventListener("click", renderOwner);
+    });
+
+    document.getElementById("clear-all-btn").addEventListener("click", () => {
+      const controls = document.getElementById("clear-all-controls");
+      controls.innerHTML = `<span style="font-size:12px;opacity:0.7;">Are you sure you want to clear all?</span>
+        <button class="btn-sm" id="clear-all-yes" style="background:var(--error);color:white;border:none;margin-left:6px;">Yes</button>
+        <button class="btn-sm" id="clear-all-no" style="background:transparent;color:var(--bark);border:1px solid var(--bark);margin-left:4px;">No</button>`;
+      document.getElementById("clear-all-yes").addEventListener("click", () => {
+        const next = {};
+        ALL_ITEMS.forEach(i => { next[i.id] = { ...state[i.id], checked: false }; });
+        commit(next);
+        flashToast("Everything cleared");
+      });
+      document.getElementById("clear-all-no").addEventListener("click", renderOwner);
+    });
+  }
+
+  function switchView(v) {
+    view = v;
+    document.getElementById("tab-team").classList.toggle("active", v === "team");
+    document.getElementById("tab-owner").classList.toggle("active", v === "owner");
+    teamViewEl.classList.toggle("hidden", v !== "team");
+    if (v === "team") {
+      unlocked = false;
+      ownerLockEl.classList.add("hidden");
+      ownerViewEl.classList.add("hidden");
+    } else {
+      if (unlocked) {
+        ownerLockEl.classList.add("hidden");
+        ownerViewEl.classList.remove("hidden");
+        renderOwner();
+      } else {
+        ownerLockEl.classList.remove("hidden");
+        ownerViewEl.classList.add("hidden");
+      }
+    }
+  }
+
+  document.getElementById("tab-team").addEventListener("click", () => switchView("team"));
+  document.getElementById("tab-owner").addEventListener("click", () => switchView("owner"));
+  document.getElementById("unlock-btn").addEventListener("click", tryUnlock);
+  document.getElementById("passcode-input").addEventListener("keydown", e => { if (e.key === "Enter") tryUnlock(); });
+
+  function tryUnlock() {
+    const input = document.getElementById("passcode-input");
+    const errorEl = document.getElementById("passcode-error");
+    if (input.value === OWNER_PASSCODE) {
+      unlocked = true;
+      input.value = "";
+      errorEl.classList.add("hidden");
+      ownerLockEl.classList.add("hidden");
+      ownerViewEl.classList.remove("hidden");
+      renderOwner();
+    } else {
+      errorEl.classList.remove("hidden");
+      input.classList.add("error");
+    }
+  }
+
+  // Real-time listener — every device sees changes instantly
+  onSnapshot(stateDocRef, (snap) => {
+    loadingEl.classList.add("hidden");
+    if (snap.exists()) {
+      const data = snap.data();
+      state = { ...defaultState(), ...state, ...data };
+    } else {
+      // First run ever — seed the document
+      setDoc(stateDocRef, defaultState()).catch(e => console.error(e));
+    }
+    renderTeam();
+    if (view === "owner" && unlocked) renderOwner();
+  }, (err) => {
+    console.error("Listener error", err);
+    loadingEl.textContent = "Couldn't connect — check Firestore rules.";
+    loadingEl.classList.remove("hidden");
+  });
+</script>
+</body>
+</html>
