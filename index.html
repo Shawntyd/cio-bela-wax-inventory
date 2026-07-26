@@ -180,12 +180,14 @@
   .total-bar {
     position: fixed; bottom: 0; left: 0; right: 0;
     background: var(--bark); color: var(--cream);
-    padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 20px 10px; display: flex; flex-direction: column; gap: 2px;
     font-family: 'Jost', sans-serif; box-shadow: 0 -4px 14px rgba(0,0,0,0.2);
     z-index: 10;
   }
+  .total-bar .row { display: flex; justify-content: space-between; align-items: center; }
   .total-bar .label { font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.75; }
   .total-bar .amount { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 22px; font-weight: 600; color: var(--gold-light); }
+  .total-bar .disclaimer { font-size: 10px; opacity: 0.55; text-align: right; font-style: italic; }
 </style>
 </head>
 <body>
@@ -225,8 +227,11 @@
 
 <div class="toast" id="toast"></div>
 <div class="total-bar hidden" id="total-bar">
-  <span class="label">Flagged total</span>
-  <span class="amount" id="total-amount">$0.00</span>
+  <div class="row">
+    <span class="label">Estimated total</span>
+    <span class="amount" id="total-amount">$0.00</span>
+  </div>
+  <div class="disclaimer">Based on your last saved price — actual Amazon price may vary at checkout</div>
 </div>
 
 <script type="module">
