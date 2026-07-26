@@ -25,15 +25,22 @@
     font-family: 'Jost', sans-serif;
   }
   .wrap { max-width: 640px; margin: 0 auto; padding: 24px 20px 100px; }
-  .hero {
-    position: relative;
-    width: 100%;
+  .hero-screen {
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
     max-width: 640px;
     margin: 0 auto;
+  }
+  .hero {
+    position: relative;
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
     line-height: 0;
   }
-  .hero-img { display: block; width: 100%; height: auto; }
+  .hero-img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 35%; }
   .hero-fade {
     position: absolute;
     inset: 0;
@@ -183,17 +190,19 @@
 </head>
 <body>
 
-<div class="hero">
-  <img class="hero-img" src="assets/hero.jpg" alt="Waxing service in progress" />
-  <div class="hero-fade"></div>
-</div>
-<div class="hero-panel">
-  <div class="hero-title">Waxing Lounge Inventory</div>
-  <div class="hero-eyebrow">Cio Bela Salons · For Internal Use Only</div>
-  <div class="toggle">
-    <button id="tab-team" class="active">Team Checklist</button>
-    <button id="tab-owner">Owner Dashboard</button>
-    <button id="tab-history">Order History</button>
+<div class="hero-screen">
+  <div class="hero">
+    <img class="hero-img" src="assets/hero.jpg" alt="Waxing service in progress" />
+    <div class="hero-fade"></div>
+  </div>
+  <div class="hero-panel">
+    <div class="hero-title">Waxing Lounge Inventory</div>
+    <div class="hero-eyebrow">Cio Bela Salons · For Internal Use Only</div>
+    <div class="toggle">
+      <button id="tab-team" class="active">Team Checklist</button>
+      <button id="tab-owner">Owner Dashboard</button>
+      <button id="tab-history">Order History</button>
+    </div>
   </div>
 </div>
 
@@ -560,10 +569,7 @@
       ownerLockEl.classList.add("hidden");
       ownerViewEl.classList.add("hidden");
       renderHistory();
-      return;
-    }
-
-    if (v === "team") {
+    } else if (v === "team") {
       unlocked = false;
       ownerLockEl.classList.add("hidden");
       ownerViewEl.classList.add("hidden");
@@ -576,6 +582,8 @@
         ownerLockEl.classList.remove("hidden");
       }
     }
+
+    document.querySelector(".wrap").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   document.getElementById("tab-team").addEventListener("click", () => switchView("team"));
