@@ -302,6 +302,7 @@
 
   let state = defaultState();
   let view = "team";
+  let hasNavigated = false;
   let unlocked = false;
   let suppressNextRenderConflict = false;
 
@@ -389,7 +390,7 @@
   function updateTotalBar(flagged) {
     const totalBar = document.getElementById("total-bar");
     const totalAmount = document.getElementById("total-amount");
-    if (flagged.length === 0) {
+    if (flagged.length === 0 || !hasNavigated) {
       totalBar.classList.add("hidden");
       return;
     }
@@ -559,6 +560,7 @@
 
   function switchView(v) {
     view = v;
+    hasNavigated = true;
     document.getElementById("tab-team").classList.toggle("active", v === "team");
     document.getElementById("tab-owner").classList.toggle("active", v === "owner");
     document.getElementById("tab-history").classList.toggle("active", v === "history");
