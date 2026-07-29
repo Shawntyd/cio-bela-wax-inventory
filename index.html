@@ -415,20 +415,20 @@
       return;
     }
 
-    const asinItems = flagged.filter(i => ASIN_RE.test((state[i.id].link || "").trim()));
-
     let html = `<div class="actions">
       <button class="btn" id="copy-list-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path></svg> Copy order list</button>
-      <button class="btn" id="amazon-cart-btn" ${asinItems.length === 0 ? "disabled" : ""}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"></path></svg> Amazon cart (${asinItems.length})</button>
       <span id="clear-controls"><button class="btn muted" id="mark-ordered-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6M23 20v-6h-6"></path><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"></path></svg> Mark ordered</button></span>
       <span id="clear-all-controls"><button class="btn muted" id="clear-all-btn" style="border-color:var(--error);color:var(--error);">Clear all</button></span>
     </div>
-    <div class="note">For Amazon items, paste the product's ASIN (found in its product URL) below — the cart button adds every ASIN item at once. You'll need to be signed into Amazon in this tab. For anything else, use "Copy order list" and paste it into that site.</div>`;
+    <div class="note">For Amazon items with an ASIN saved, tap "Open" to jump straight to that exact product page and tap Add to Cart there. For anything else, use "Copy order list" and paste it into that site's search.</div>`;
 
     flagged.forEach(item => {
       const link = state[item.id]?.link || "";
       const qty = state[item.id]?.qty || 1;
       const price = state[item.id]?.price || 0;
+      const trimmedLink = link.trim();
+      const isAsin = ASIN_RE.test(trimmedLink);
+      const openUrl = isAsin ? `https://www.amazon.com/dp/${encodeURIComponent(trimmedLink)}` : (trimmedLink.startsWith("http") ? trimmedLink : "");
       html += `<div class="owner-item" data-id="${item.id}">
         ${sealHtml(true, 20)}
         <div style="flex:1;min-width:0;">
@@ -444,6 +444,7 @@
           <span class="qty">${qty}</span>
           <button class="step-btn" data-qty-up="${item.id}">+</button>
         </div>
+        ${openUrl ? `<a href="${openUrl}" target="_blank" rel="noreferrer" style="font-size:11px;font-weight:500;color:var(--gold);border:1px solid var(--gold);border-radius:6px;padding:5px 8px;white-space:nowrap;">Open</a>` : ""}
       </div>`;
     });
 
@@ -471,20 +472,6 @@
       } catch (e) {
         flashToast("Couldn't copy — select and copy manually");
       }
-    });
-
-    document.getElementById("amazon-cart-btn").addEventListener("click", () => {
-      if (asinItems.length === 0) return;
-      const params = asinItems.map((i, idx) => {
-        const n = idx + 1;
-        const asin = state[i.id].link.trim();
-        const q = state[i.id].qty || 1;
-        return `ASIN.${n}=${encodeURIComponent(asin)}&Quantity.${n}=${q}`;
-      }).join("&");
-      const cartUrl = `https://www.amazon.com/gp/aws/cart/add.html?${params}`;
-      navigator.clipboard.writeText(cartUrl).catch(() => {});
-      window.open(cartUrl, "_blank");
-      flashToast("Link copied — if it opened the Amazon app instead of your cart, paste it into Safari/Chrome");
     });
 
     document.getElementById("mark-ordered-btn").addEventListener("click", () => {
