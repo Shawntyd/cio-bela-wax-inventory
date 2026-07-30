@@ -672,9 +672,28 @@
     return totals;
   }
 
-  function renderReports() {
+  let allOrdersCache = [];
+
+  async function renderReports() {
     const reportsEl = document.getElementById("reports-view");
-    let html = `<div class="note" style="margin-bottom:16px;">Log completed services below as they happen (or ask Claude to bulk-sync from calendars). Then generate a report for any specialist covering everything since your last marked order.</div>
+    reportsEl.innerHTML = `<div class="status-line">Loading orders…</div>`;
+
+    try {
+      const q = query(ordersColRef, orderBy("orderedAt", "asc"));
+      const snap = await getDocs(q);
+      allOrdersCache = [];
+      snap.forEach(d => allOrdersCache.push({ id: d.id, ...d.data() }));
+    } catch (e) {
+      console.error("Couldn't load orders", e);
+      allOrdersCache = [];
+    }
+
+    const orderOptions = allOrdersCache.map((o, idx) => {
+      const dateStr = o.orderedAt?.toDate ? o.orderedAt.toDate().toLocaleDateString() : "unknown date";
+      return `<option value="${o.id}">Order #${idx + 1} — ${dateStr} — $${(o.total || 0).toFixed(2)}</option>`;
+    }).join("");
+
+    let html = `<div class="note" style="margin-bottom:16px;">Log completed services below as they happen (or ask Claude to bulk-sync from calendars). Then pick a specific order to bill against — the report covers everything logged between that order and the one before it.</div>
     <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Log a completed service</div>
       <div style="display:flex;flex-direction:column;gap:10px;">
@@ -688,8 +707,20 @@
         <button class="btn" id="log-service-btn" style="align-self:flex-start;">Add to log</button>
       </div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
-      ${SPECIALISTS.map(s => `<button class="btn muted" data-report-for="${s.id}">Generate report — ${s.name}</button>`).join("")}
+    <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Generate a report</div>
+      ${allOrdersCache.length === 0
+        ? `<div style="font-size:12px;opacity:0.6;">No orders in history yet — place one via "Mark ordered" on the Owner Dashboard first.</div>`
+        : `<div style="display:flex;flex-direction:column;gap:10px;">
+            <select id="report-specialist" style="padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;">
+              ${SPECIALISTS.map(s => `<option value="${s.id}">${s.name}</option>`).join("")}
+            </select>
+            <select id="report-order" style="padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;">
+              ${orderOptions}
+            </select>
+            <button class="btn" id="generate-report-btn" style="align-self:flex-start;">Generate report</button>
+          </div>`
+      }
     </div>
     <div id="report-output"></div>`;
 
@@ -708,46 +739,47 @@
       }
     });
 
-    reportsEl.querySelectorAll("[data-report-for]").forEach(btn => {
-      btn.addEventListener("click", () => generateReport(btn.dataset.reportFor));
-    });
+    const generateBtn = document.getElementById("generate-report-btn");
+    if (generateBtn) {
+      generateBtn.addEventListener("click", () => {
+        const specialistId = document.getElementById("report-specialist").value;
+        const orderId = document.getElementById("report-order").value;
+        generateReport(specialistId, orderId);
+      });
+    }
   }
 
-  async function generateReport(specialistId) {
+  async function generateReport(specialistId, orderId) {
     const outputEl = document.getElementById("report-output");
     outputEl.innerHTML = `<div class="status-line">Generating report…</div>`;
 
-    // Recipes must be current
     try {
       const recipeSnap = await getDoc(recipesDocRef);
       recipes = recipeSnap.exists() ? recipeSnap.data() : {};
     } catch (e) { console.error(e); }
 
-    // Find the most recent order to anchor the period
-    let periodStart = null;
-    let periodLabel = "all recorded history";
-    try {
-      const orderQ = query(ordersColRef, orderBy("orderedAt", "desc"), limit(1));
-      const orderSnap = await getDocs(orderQ);
-      if (!orderSnap.empty) {
-        const lastOrder = orderSnap.docs[0].data();
-        if (lastOrder.orderedAt?.toDate) {
-          periodStart = lastOrder.orderedAt.toDate();
-          periodLabel = `since your last order on ${periodStart.toLocaleDateString()}`;
-        }
-      }
-    } catch (e) { console.error(e); }
+    const orderIndex = allOrdersCache.findIndex(o => o.id === orderId);
+    const selectedOrder = allOrdersCache[orderIndex];
+    const orderTotal = selectedOrder?.total || 0;
+    const periodEnd = selectedOrder?.orderedAt?.toDate ? selectedOrder.orderedAt.toDate() : new Date();
+    const periodStart = orderIndex > 0 && allOrdersCache[orderIndex - 1].orderedAt?.toDate
+      ? allOrdersCache[orderIndex - 1].orderedAt.toDate()
+      : null;
+    const periodLabel = periodStart
+      ? `${periodStart.toLocaleDateString()} – ${periodEnd.toLocaleDateString()} (Order #${orderIndex + 1})`
+      : `through ${periodEnd.toLocaleDateString()} (Order #${orderIndex + 1}, earliest on record)`;
 
-    // Pull all service-log entries, filter by period
     let allLogs = [];
     try {
       const logSnap = await getDocs(serviceLogColRef);
       logSnap.forEach(d => allLogs.push(d.data()));
     } catch (e) { console.error(e); }
 
-    const inPeriod = allLogs.filter(l => !periodStart || new Date(l.date) >= periodStart);
+    const inPeriod = allLogs.filter(l => {
+      const d = new Date(l.date);
+      return (!periodStart || d >= periodStart) && d <= periodEnd;
+    });
 
-    // Counts per specialist per service
     const bySpecialist = {};
     SPECIALISTS.forEach(s => bySpecialist[s.id] = {});
     inPeriod.forEach(l => {
@@ -766,6 +798,7 @@
       everyoneWax += (t.hardWax || 0) + (t.softWax || 0);
     });
     const pct = everyoneWax > 0 ? Math.round((specialistWax / everyoneWax) * 100) : 0;
+    const charge = everyoneWax > 0 ? (specialistWax / everyoneWax) * orderTotal : 0;
 
     const servicesPerformed = Object.entries(specialistCounts);
     const totalServices = servicesPerformed.reduce((sum, [, c]) => sum + c, 0);
@@ -773,7 +806,7 @@
     if (totalServices === 0) {
       outputEl.innerHTML = `<div class="empty-box">
         <div class="empty-title">No logged services for ${specialist.name}</div>
-        <div class="empty-sub">Nothing recorded ${periodLabel} yet. Log services above, or ask Claude to sync from her calendar.</div>
+        <div class="empty-sub">Nothing recorded for this order's period yet. Log services above, or ask Claude to sync from her calendar.</div>
       </div>`;
       return;
     }
@@ -783,6 +816,11 @@
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${specialist.name}'s Consumption Report</div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold);margin-top:4px;">Period: ${periodLabel}</div>
+      </div>
+      <div style="text-align:center;background:linear-gradient(135deg, var(--bark), #241a12);color:var(--cream);border-radius:12px;padding:16px;margin-bottom:18px;">
+        <div style="font-size:10.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold-light);opacity:0.85;">Share of Order #${orderIndex + 1}'s Cost</div>
+        <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:38px;margin:4px 0 2px;">$${charge.toFixed(2)}</div>
+        <div style="font-size:11px;opacity:0.65;">${pct}% of $${orderTotal.toFixed(2)} total</div>
       </div>
       <div style="display:flex;justify-content:center;margin:20px 0;">
         <div style="width:150px;height:150px;border-radius:50%;background:conic-gradient(var(--gold) 0deg ${pieDeg}deg, rgba(44,32,22,0.12) ${pieDeg}deg 360deg);display:flex;align-items:center;justify-content:center;">
@@ -808,7 +846,8 @@
       <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
         <div style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">These conclusions were based on the following data</div>
         <div style="font-size:11px;opacity:0.7;line-height:1.6;">
-          Period anchor: ${periodLabel}.<br/>
+          Billed against: Order #${orderIndex + 1}, placed ${periodEnd.toLocaleDateString()}, total $${orderTotal.toFixed(2)}.<br/>
+          Period covered: ${periodLabel}.<br/>
           Recipe values used (live from the Recipes tab at the time this report was generated):
           ${servicesPerformed.map(([sid]) => {
             const s = SERVICES.find(x => x.id === sid);
@@ -817,7 +856,8 @@
             return `<br/>— ${s ? s.name : sid}: ${parts || "no recipe set"}`;
           }).join("")}
           <br/><br/>
-          Total wax used across all specialists in this period: ${everyoneWax.toFixed(1)}g. ${specialist.name}'s share: ${specialistWax.toFixed(1)}g (${pct}%).
+          Total wax used across all specialists in this period: ${everyoneWax.toFixed(1)}g. ${specialist.name}'s share: ${specialistWax.toFixed(1)}g (${pct}%).<br/>
+          Charge = ${pct}% × $${orderTotal.toFixed(2)} = <b>$${charge.toFixed(2)}</b>.
         </div>
       </div>
     </div>`;
