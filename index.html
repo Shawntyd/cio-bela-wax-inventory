@@ -308,6 +308,7 @@
   let recipes = {};
 
   const OWNER_PASSCODE = "4834";
+  const SKIP_PASSCODE = true; // TEMPORARY — set back to false to re-enable the passcode gate
   const ASIN_RE = /^[A-Z0-9]{10}$/i;
 
   const CATEGORIES = [
@@ -360,7 +361,7 @@
   let state = defaultState();
   let view = "team";
   let hasNavigated = false;
-  let unlocked = false;
+  let unlocked = SKIP_PASSCODE;
   let suppressNextRenderConflict = false;
 
   const teamViewEl = document.getElementById("team-view");
@@ -874,20 +875,20 @@
     document.getElementById("tab-reports").classList.toggle("active", v === "reports");
     teamViewEl.classList.toggle("hidden", v !== "team");
     document.getElementById("history-view").classList.toggle("hidden", v !== "history");
-    document.getElementById("recipes-view").classList.toggle("hidden", v !== "recipes" || !unlocked);
-    document.getElementById("reports-view").classList.toggle("hidden", v !== "reports" || !unlocked);
+    document.getElementById("recipes-view").classList.toggle("hidden", v !== "recipes" || !(unlocked || SKIP_PASSCODE));
+    document.getElementById("reports-view").classList.toggle("hidden", v !== "reports" || !(unlocked || SKIP_PASSCODE));
 
     if (v === "history") {
       ownerLockEl.classList.add("hidden");
       ownerViewEl.classList.add("hidden");
       renderHistory();
     } else if (v === "team") {
-      unlocked = false;
+      unlocked = SKIP_PASSCODE;
       ownerLockEl.classList.add("hidden");
       ownerViewEl.classList.add("hidden");
     } else if (v === "recipes") {
       ownerViewEl.classList.add("hidden");
-      if (unlocked) {
+      if (unlocked || SKIP_PASSCODE) {
         ownerLockEl.classList.add("hidden");
         renderRecipes();
       } else {
@@ -895,15 +896,15 @@
       }
     } else if (v === "reports") {
       ownerViewEl.classList.add("hidden");
-      if (unlocked) {
+      if (unlocked || SKIP_PASSCODE) {
         ownerLockEl.classList.add("hidden");
         renderReports();
       } else {
         ownerLockEl.classList.remove("hidden");
       }
     } else {
-      ownerViewEl.classList.toggle("hidden", !unlocked);
-      if (unlocked) {
+      ownerViewEl.classList.toggle("hidden", !(unlocked || SKIP_PASSCODE));
+      if (unlocked || SKIP_PASSCODE) {
         ownerLockEl.classList.add("hidden");
         renderOwner();
       } else {
@@ -957,7 +958,7 @@
       setDoc(stateDocRef, defaultState()).catch(e => console.error(e));
     }
     renderTeam();
-    if (view === "owner" && unlocked) renderOwner();
+    if (view === "owner" && (unlocked || SKIP_PASSCODE)) renderOwner();
   }, (err) => {
     console.error("Listener error", err);
     loadingEl.textContent = "Couldn't connect — check Firestore rules.";
