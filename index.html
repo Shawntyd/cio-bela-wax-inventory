@@ -204,6 +204,7 @@
       <button id="tab-team" class="active">Team Checklist</button>
       <button id="tab-owner">Owner Dashboard</button>
       <button id="tab-history">Order History</button>
+      <button id="tab-recipes">Recipes</button>
     </div>
   </div>
 </div>
@@ -223,6 +224,7 @@
   </div>
   <div id="owner-view" class="hidden"></div>
   <div id="history-view" class="hidden"></div>
+  <div id="recipes-view" class="hidden"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -254,6 +256,45 @@
   const db = getFirestore(app);
   const stateDocRef = doc(db, "inventory", "state");
   const ordersColRef = collection(db, "orders");
+  const recipesDocRef = doc(db, "recipes", "config");
+
+  // Researched default consumption per service (editable — these are starting estimates, not gospel)
+  const SERVICES = [
+    { id: "brow-wax", name: "Brow Waxing & Shaping", defaults: { hardWax: 3.5, spatSmall: 1, gloves: 1 } },
+    { id: "upper-lip-wax", name: "Upper Lip Wax", defaults: { hardWax: 2.5, spatSmall: 1, gloves: 1 } },
+    { id: "chin-wax", name: "Chin Wax", defaults: { hardWax: 3, spatSmall: 1, gloves: 1 } },
+    { id: "full-face-wax", name: "Full Face Wax", defaults: { hardWax: 15, spatSmall: 3, gloves: 1 } },
+    { id: "nose-ear-wax", name: "Nose & Ear Wax", defaults: { hardWax: 10, spatSmall: 1, gloves: 1 } },
+    { id: "underarm-wax", name: "Underarm Wax", defaults: { hardWax: 6.5, spatSmall: 1, gloves: 1 } },
+    { id: "half-arm-wax", name: "Half Arm Wax", defaults: { hardWax: 12.5, spatMedium: 2, gloves: 1 } },
+    { id: "full-arm-wax", name: "Full Arm Wax", defaults: { hardWax: 17.5, spatMedium: 4, gloves: 1 } },
+    { id: "stomach-wax", name: "Stomach / Abdomen Wax", defaults: { hardWax: 15, spatMedium: 2, gloves: 1 } },
+    { id: "back-wax", name: "Back Wax", defaults: { hardWax: 50, spatLarge: 7, gloves: 1 } },
+    { id: "chest-wax", name: "Chest Wax", defaults: { hardWax: 40, spatLarge: 5, gloves: 1 } },
+    { id: "lower-leg-wax", name: "Lower Leg Wax", defaults: { hardWax: 25, spatMedium: 3, gloves: 1 } },
+    { id: "upper-leg-wax", name: "Upper Leg Wax", defaults: { hardWax: 30, spatMedium: 3, gloves: 1 } },
+    { id: "full-leg-wax", name: "Full Leg Wax", defaults: { hardWax: 50, spatLarge: 7, gloves: 1 } },
+    { id: "bikini-line-wax", name: "Bikini Line Wax", defaults: { hardWax: 12.5, spatSmall: 2, gloves: 1 } },
+    { id: "full-bikini-wax", name: "Full Bikini Wax", defaults: { hardWax: 17.5, spatSmall: 3, gloves: 1 } },
+    { id: "brazilian-wax", name: "Brazilian Wax", defaults: { hardWax: 90, spatSmall: 4, gloves: 1 } },
+    { id: "mens-grooming-wax", name: "Men's Grooming Wax", defaults: { hardWax: 65, spatLarge: 6, gloves: 1 } },
+    { id: "ingrown-treatment", name: "Ingrown Hair Treatment", defaults: { gloves: 1 } },
+    { id: "post-wax-soothing", name: "Post-Wax Soothing Treatment", defaults: { gloves: 1 } },
+    { id: "exfoliation-scrub", name: "Exfoliation Scrub", defaults: { gloves: 1 } },
+    { id: "moisturizing-treatment", name: "Moisturizing Treatment", defaults: { gloves: 1 } },
+    { id: "skin-calming-mask", name: "Skin Calming Mask", defaults: { gloves: 1 } },
+  ];
+  const RECIPE_FIELDS = [
+    { key: "hardWax", label: "Hard wax (g)" },
+    { key: "softWax", label: "Soft wax (g)" },
+    { key: "stripsSmall", label: "Strips — small" },
+    { key: "stripsLarge", label: "Strips — large" },
+    { key: "spatSmall", label: "Spatulas — small" },
+    { key: "spatMedium", label: "Spatulas — medium" },
+    { key: "spatLarge", label: "Spatulas — large" },
+    { key: "gloves", label: "Gloves (pairs)" },
+  ];
+  let recipes = {};
 
   const OWNER_PASSCODE = "4834";
   const ASIN_RE = /^[A-Z0-9]{10}$/i;
@@ -560,14 +601,63 @@
     }
   }
 
+  async function renderRecipes() {
+    const recipesEl = document.getElementById("recipes-view");
+    recipesEl.innerHTML = `<div class="status-line">Loading recipes…</div>`;
+    try {
+      const snap = await getDoc(recipesDocRef);
+      recipes = snap.exists() ? snap.data() : {};
+    } catch (e) {
+      console.error("Couldn't load recipes", e);
+      recipes = {};
+    }
+
+    let html = `<div class="note" style="margin-bottom:18px;">
+      These numbers are researched starting estimates, not exact figures — edit any field to match what you actually observe, and it saves automatically. "Gloves" applies to every service since a fresh pair is used per appointment.
+    </div>`;
+
+    SERVICES.forEach(service => {
+      const saved = recipes[service.id] || {};
+      html += `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+        <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">${service.name}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">`;
+      RECIPE_FIELDS.forEach(field => {
+        const val = saved[field.key] !== undefined ? saved[field.key] : (service.defaults[field.key] !== undefined ? service.defaults[field.key] : "");
+        html += `<label style="font-size:11px;opacity:0.7;display:flex;flex-direction:column;gap:3px;">
+          ${field.label}
+          <input type="text" inputmode="decimal" data-service="${service.id}" data-field="${field.key}" value="${val}" style="border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:13px;padding:4px 0;" />
+        </label>`;
+      });
+      html += `</div></div>`;
+    });
+
+    recipesEl.innerHTML = html;
+    recipesEl.querySelectorAll("input[data-service]").forEach(input => {
+      input.addEventListener("change", () => {
+        const serviceId = input.dataset.service;
+        const field = input.dataset.field;
+        const num = parseFloat(input.value);
+        if (!recipes[serviceId]) recipes[serviceId] = {};
+        if (isNaN(num)) {
+          delete recipes[serviceId][field];
+        } else {
+          recipes[serviceId][field] = num;
+        }
+        setDoc(recipesDocRef, recipes).catch(e => console.error("Couldn't save recipe", e));
+      });
+    });
+  }
+
   function switchView(v) {
     view = v;
     hasNavigated = true;
     document.getElementById("tab-team").classList.toggle("active", v === "team");
     document.getElementById("tab-owner").classList.toggle("active", v === "owner");
     document.getElementById("tab-history").classList.toggle("active", v === "history");
+    document.getElementById("tab-recipes").classList.toggle("active", v === "recipes");
     teamViewEl.classList.toggle("hidden", v !== "team");
     document.getElementById("history-view").classList.toggle("hidden", v !== "history");
+    document.getElementById("recipes-view").classList.toggle("hidden", v !== "recipes" || !unlocked);
 
     if (v === "history") {
       ownerLockEl.classList.add("hidden");
@@ -577,6 +667,14 @@
       unlocked = false;
       ownerLockEl.classList.add("hidden");
       ownerViewEl.classList.add("hidden");
+    } else if (v === "recipes") {
+      ownerViewEl.classList.add("hidden");
+      if (unlocked) {
+        ownerLockEl.classList.add("hidden");
+        renderRecipes();
+      } else {
+        ownerLockEl.classList.remove("hidden");
+      }
     } else {
       ownerViewEl.classList.toggle("hidden", !unlocked);
       if (unlocked) {
@@ -590,6 +688,7 @@
     document.querySelector(".wrap").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  document.getElementById("tab-recipes").addEventListener("click", () => switchView("recipes"));
   document.getElementById("tab-team").addEventListener("click", () => switchView("team"));
   document.getElementById("tab-owner").addEventListener("click", () => switchView("owner"));
   document.getElementById("tab-history").addEventListener("click", () => switchView("history"));
@@ -604,8 +703,13 @@
       input.value = "";
       errorEl.classList.add("hidden");
       ownerLockEl.classList.add("hidden");
-      ownerViewEl.classList.remove("hidden");
-      renderOwner();
+      if (view === "recipes") {
+        document.getElementById("recipes-view").classList.remove("hidden");
+        renderRecipes();
+      } else {
+        ownerViewEl.classList.remove("hidden");
+        renderOwner();
+      }
     } else {
       errorEl.classList.remove("hidden");
       input.classList.add("error");
