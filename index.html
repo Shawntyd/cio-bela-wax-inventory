@@ -231,7 +231,7 @@
     <span class="label">Estimated total</span>
     <span class="amount" id="total-amount">$0.00</span>
   </div>
-  <div class="disclaimer">Based on your last saved price — actual Amazon price may vary at checkout</div>
+  <div class="disclaimer" id="total-disclaimer">Based on your last saved price — actual Amazon price may vary at checkout</div>
 </div>
 
 <script type="module">
@@ -393,15 +393,21 @@
     updateTotalBar(flagged);
   }
 
+  const TAX_RATE = 0.0825;
+
   function updateTotalBar(flagged) {
     const totalBar = document.getElementById("total-bar");
     const totalAmount = document.getElementById("total-amount");
+    const disclaimerEl = document.getElementById("total-disclaimer");
     if (flagged.length === 0 || !hasNavigated) {
       totalBar.classList.add("hidden");
       return;
     }
-    const total = flagged.reduce((sum, i) => sum + (state[i.id].price || 0) * (state[i.id].qty || 1), 0);
+    const subtotal = flagged.reduce((sum, i) => sum + (state[i.id].price || 0) * (state[i.id].qty || 1), 0);
+    const tax = subtotal * TAX_RATE;
+    const total = subtotal + tax;
     totalAmount.textContent = "$" + total.toFixed(2);
+    disclaimerEl.textContent = `Includes est. 8.25% tax ($${tax.toFixed(2)} on $${subtotal.toFixed(2)} subtotal) — actual Amazon price may vary at checkout`;
     totalBar.classList.remove("hidden");
   }
 
