@@ -242,7 +242,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
     getFirestore, doc, onSnapshot, setDoc, getDoc,
-    collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp
+    collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp, deleteDoc
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -610,9 +610,34 @@
           </div>
           ${lines}
           ${breakdown}
+          <div style="margin-top:10px;text-align:right;">
+            <span id="delete-controls-${docSnap.id}">
+              <button class="btn-sm" data-delete-order="${docSnap.id}" style="background:transparent;color:var(--error);border:1px solid var(--error);">Delete</button>
+            </span>
+          </div>
         </div>`;
       });
       historyEl.innerHTML = html;
+      historyEl.querySelectorAll("[data-delete-order]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const orderId = btn.dataset.deleteOrder;
+          const controls = document.getElementById(`delete-controls-${orderId}`);
+          controls.innerHTML = `<span style="font-size:12px;opacity:0.7;">Delete this order?</span>
+            <button class="btn-sm" data-confirm-delete="${orderId}" style="background:var(--error);color:white;border:none;margin-left:6px;">Yes</button>
+            <button class="btn-sm" data-cancel-delete="${orderId}" style="background:transparent;color:var(--bark);border:1px solid var(--bark);margin-left:4px;">No</button>`;
+          controls.querySelector(`[data-confirm-delete="${orderId}"]`).addEventListener("click", async () => {
+            try {
+              await deleteDoc(doc(db, "orders", orderId));
+              flashToast("Order deleted");
+              renderHistory();
+            } catch (e) {
+              console.error("Couldn't delete order", e);
+              flashToast("Couldn't delete — check connection");
+            }
+          });
+          controls.querySelector(`[data-cancel-delete="${orderId}"]`).addEventListener("click", () => renderHistory());
+        });
+      });
     } catch (e) {
       console.error("Couldn't load history", e);
       historyEl.innerHTML = `<div class="empty-box"><div class="empty-sub">Couldn't load order history — check your connection and try again.</div></div>`;
