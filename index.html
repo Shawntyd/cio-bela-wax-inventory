@@ -540,9 +540,11 @@
           qty: state[i.id].qty || 1,
           price: state[i.id].price || 0,
         }));
-        const total = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+        const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+        const tax = subtotal * TAX_RATE;
+        const total = subtotal + tax;
         try {
-          await addDoc(ordersColRef, { items: orderItems, total, orderedAt: serverTimestamp() });
+          await addDoc(ordersColRef, { items: orderItems, subtotal, tax, total, orderedAt: serverTimestamp() });
         } catch (e) {
           console.error("Couldn't save order history", e);
         }
@@ -594,12 +596,20 @@
             <span style="opacity:0.7;">${i.price ? "$" + (i.price * i.qty).toFixed(2) : ""}</span>
           </div>`
         ).join("");
+        const hasBreakdown = order.subtotal !== undefined && order.tax !== undefined;
+        const breakdown = hasBreakdown
+          ? `<div style="border-top:1px solid rgba(44,32,22,0.08);margin-top:8px;padding-top:8px;font-size:11.5px;opacity:0.65;">
+              <div style="display:flex;justify-content:space-between;"><span>Subtotal</span><span>$${order.subtotal.toFixed(2)}</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>Tax (8.25%)</span><span>$${order.tax.toFixed(2)}</span></div>
+            </div>`
+          : `<div style="font-size:10.5px;opacity:0.5;margin-top:8px;font-style:italic;">Placed before tax tracking was added — total shown is items only, no tax included.</div>`;
         html += `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
             <span style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);">${dateStr}</span>
             <span style="font-size:14px;font-weight:500;color:var(--gold);">$${(order.total || 0).toFixed(2)}</span>
           </div>
           ${lines}
+          ${breakdown}
         </div>`;
       });
       historyEl.innerHTML = html;
