@@ -267,29 +267,36 @@
 
   // Researched default consumption per service (editable — these are starting estimates, not gospel)
   const SERVICES = [
-    { id: "brow-wax", name: "Brow Waxing & Shaping", defaults: { hardWax: 3.5, spatSmall: 1, gloves: 1 } },
-    { id: "upper-lip-wax", name: "Upper Lip Wax", defaults: { hardWax: 2.5, spatSmall: 1, gloves: 1 } },
-    { id: "chin-wax", name: "Chin Wax", defaults: { hardWax: 3, spatSmall: 1, gloves: 1 } },
-    { id: "full-face-wax", name: "Full Face Wax", defaults: { hardWax: 15, spatSmall: 3, gloves: 1 } },
-    { id: "nose-ear-wax", name: "Nose & Ear Wax", defaults: { hardWax: 10, spatSmall: 1, gloves: 1 } },
-    { id: "underarm-wax", name: "Underarm Wax", defaults: { hardWax: 6.5, spatSmall: 1, gloves: 1 } },
-    { id: "half-arm-wax", name: "Half Arm Wax", defaults: { hardWax: 12.5, spatMedium: 2, gloves: 1 } },
-    { id: "full-arm-wax", name: "Full Arm Wax", defaults: { hardWax: 17.5, spatMedium: 4, gloves: 1 } },
-    { id: "stomach-wax", name: "Stomach / Abdomen Wax", defaults: { hardWax: 15, spatMedium: 2, gloves: 1 } },
-    { id: "back-wax", name: "Back Wax", defaults: { hardWax: 50, spatLarge: 7, gloves: 1 } },
-    { id: "chest-wax", name: "Chest Wax", defaults: { hardWax: 40, spatLarge: 5, gloves: 1 } },
-    { id: "lower-leg-wax", name: "Lower Leg Wax", defaults: { hardWax: 25, spatMedium: 3, gloves: 1 } },
-    { id: "upper-leg-wax", name: "Upper Leg Wax", defaults: { hardWax: 30, spatMedium: 3, gloves: 1 } },
-    { id: "full-leg-wax", name: "Full Leg Wax", defaults: { hardWax: 50, spatLarge: 7, gloves: 1 } },
-    { id: "bikini-line-wax", name: "Bikini Line Wax", defaults: { hardWax: 12.5, spatSmall: 2, gloves: 1 } },
-    { id: "full-bikini-wax", name: "Full Bikini Wax", defaults: { hardWax: 17.5, spatSmall: 3, gloves: 1 } },
-    { id: "brazilian-wax", name: "Brazilian Wax", defaults: { hardWax: 90, spatSmall: 4, gloves: 1 } },
-    { id: "mens-grooming-wax", name: "Men's Grooming Wax", defaults: { hardWax: 65, spatLarge: 6, gloves: 1 } },
-    { id: "ingrown-treatment", name: "Ingrown Hair Treatment", defaults: { gloves: 1 } },
-    { id: "post-wax-soothing", name: "Post-Wax Soothing Treatment", defaults: { gloves: 1 } },
-    { id: "exfoliation-scrub", name: "Exfoliation Scrub", defaults: { gloves: 1 } },
-    { id: "moisturizing-treatment", name: "Moisturizing Treatment", defaults: { gloves: 1 } },
-    { id: "skin-calming-mask", name: "Skin Calming Mask", defaults: { gloves: 1 } },
+    // Facial/tiny — smallest tier
+    { id: "brow-wax", name: "Brow Waxing & Shaping", defaults: { hardWax: 3.5, spatSmall: 1, gloves: 1, preCleanse: 2, preWaxOil: 1, babyPowder: 0.5, postWaxSpray: 1, calmingCream: 1, witchHazel: 2, waxRemover: 0.5, cottonRounds: 1, bedPaper: 1, disinfectant: 3, barbicide: 3, handSanitizer: 2 } },
+    { id: "upper-lip-wax", name: "Upper Lip Wax", defaults: { hardWax: 2.5, spatSmall: 1, gloves: 1, preCleanse: 2, preWaxOil: 1, babyPowder: 0.5, postWaxSpray: 1, calmingCream: 1, witchHazel: 2, waxRemover: 0.5, cottonRounds: 1, bedPaper: 1, disinfectant: 3, barbicide: 3, handSanitizer: 2 } },
+    { id: "chin-wax", name: "Chin Wax", defaults: { hardWax: 3, spatSmall: 1, gloves: 1, preCleanse: 2, preWaxOil: 1, babyPowder: 0.5, postWaxSpray: 1, calmingCream: 1, witchHazel: 2, waxRemover: 0.5, cottonRounds: 1, bedPaper: 1, disinfectant: 3, barbicide: 3, handSanitizer: 2 } },
+    { id: "nose-ear-wax", name: "Nose & Ear Wax", defaults: { hardWax: 10, spatSmall: 1, gloves: 1, preCleanse: 2, preWaxOil: 1, babyPowder: 0.5, postWaxSpray: 1, calmingCream: 1, witchHazel: 2, waxRemover: 0.5, cottonRounds: 1, bedPaper: 1, disinfectant: 3, barbicide: 3, handSanitizer: 2 } },
+    // Full face — sum of several facial zones, so scaled up
+    { id: "full-face-wax", name: "Full Face Wax", defaults: { hardWax: 15, spatSmall: 3, gloves: 1, preCleanse: 6, preWaxOil: 2.5, babyPowder: 1.5, postWaxSpray: 3, calmingCream: 3, witchHazel: 5, waxRemover: 1.5, cottonRounds: 2, bedPaper: 1, disinfectant: 4, barbicide: 3, handSanitizer: 2 } },
+    // Small precision/intimate — slightly more than facial
+    { id: "underarm-wax", name: "Underarm Wax", defaults: { hardWax: 6.5, spatSmall: 1, gloves: 1, preCleanse: 3, preWaxOil: 1.5, babyPowder: 1, postWaxSpray: 2, calmingCream: 2, witchHazel: 3, waxRemover: 1, cottonRounds: 2, bedPaper: 1, disinfectant: 3, barbicide: 3, handSanitizer: 2 } },
+    { id: "bikini-line-wax", name: "Bikini Line Wax", defaults: { hardWax: 12.5, spatSmall: 2, gloves: 1, preCleanse: 3, preWaxOil: 1.5, babyPowder: 1, postWaxSpray: 2, calmingCream: 2, witchHazel: 3, waxRemover: 1, cottonRounds: 2, bedPaper: 1, disinfectant: 3, barbicide: 3, handSanitizer: 2 } },
+    { id: "full-bikini-wax", name: "Full Bikini Wax", defaults: { hardWax: 17.5, spatSmall: 3, gloves: 1, preCleanse: 4, preWaxOil: 2, babyPowder: 1.2, postWaxSpray: 2.5, calmingCream: 2.5, witchHazel: 3.5, waxRemover: 1.5, cottonRounds: 2, bedPaper: 1, disinfectant: 3, barbicide: 3, handSanitizer: 2 } },
+    { id: "brazilian-wax", name: "Brazilian Wax", defaults: { hardWax: 90, spatSmall: 4, gloves: 1, preCleanse: 5, preWaxOil: 2.5, babyPowder: 1.5, postWaxSpray: 3, calmingCream: 3, witchHazel: 4, waxRemover: 2, cottonRounds: 3, bedPaper: 1, disinfectant: 4, barbicide: 3, handSanitizer: 2 } },
+    // Medium areas
+    { id: "half-arm-wax", name: "Half Arm Wax", defaults: { hardWax: 12.5, spatMedium: 2, gloves: 1, preCleanse: 5, preWaxOil: 2, babyPowder: 1.5, postWaxSpray: 3, calmingCream: 3, witchHazel: 4, waxRemover: 1, cottonRounds: 2, bedPaper: 1, disinfectant: 4, barbicide: 3, handSanitizer: 2 } },
+    { id: "full-arm-wax", name: "Full Arm Wax", defaults: { hardWax: 17.5, spatMedium: 4, gloves: 1, preCleanse: 6, preWaxOil: 2.5, babyPowder: 2, postWaxSpray: 3.5, calmingCream: 3.5, witchHazel: 4.5, waxRemover: 1.2, cottonRounds: 2, bedPaper: 1, disinfectant: 4, barbicide: 3, handSanitizer: 2 } },
+    { id: "stomach-wax", name: "Stomach / Abdomen Wax", defaults: { hardWax: 15, spatMedium: 2, gloves: 1, preCleanse: 5, preWaxOil: 2, babyPowder: 1.5, postWaxSpray: 3, calmingCream: 3, witchHazel: 4, waxRemover: 1, cottonRounds: 2, bedPaper: 1, disinfectant: 4, barbicide: 3, handSanitizer: 2 } },
+    { id: "lower-leg-wax", name: "Lower Leg Wax", defaults: { hardWax: 25, spatMedium: 3, gloves: 1, preCleanse: 5, preWaxOil: 2, babyPowder: 1.5, postWaxSpray: 3, calmingCream: 3, witchHazel: 4, waxRemover: 1, cottonRounds: 2, bedPaper: 1, disinfectant: 4, barbicide: 3, handSanitizer: 2 } },
+    { id: "upper-leg-wax", name: "Upper Leg Wax", defaults: { hardWax: 30, spatMedium: 3, gloves: 1, preCleanse: 5, preWaxOil: 2, babyPowder: 1.5, postWaxSpray: 3, calmingCream: 3, witchHazel: 4, waxRemover: 1, cottonRounds: 2, bedPaper: 1, disinfectant: 4, barbicide: 3, handSanitizer: 2 } },
+    // Large areas
+    { id: "back-wax", name: "Back Wax", defaults: { hardWax: 50, spatLarge: 7, gloves: 1, preCleanse: 8, preWaxOil: 3, babyPowder: 2.5, postWaxSpray: 5, calmingCream: 5, witchHazel: 6, waxRemover: 1.5, cottonRounds: 3, bedPaper: 2, disinfectant: 5, barbicide: 4, handSanitizer: 3 } },
+    { id: "chest-wax", name: "Chest Wax", defaults: { hardWax: 40, spatLarge: 5, gloves: 1, preCleanse: 8, preWaxOil: 3, babyPowder: 2.5, postWaxSpray: 5, calmingCream: 5, witchHazel: 6, waxRemover: 1.5, cottonRounds: 3, bedPaper: 2, disinfectant: 5, barbicide: 4, handSanitizer: 3 } },
+    { id: "full-leg-wax", name: "Full Leg Wax", defaults: { hardWax: 50, spatLarge: 7, gloves: 1, preCleanse: 8, preWaxOil: 3, babyPowder: 2.5, postWaxSpray: 5, calmingCream: 5, witchHazel: 6, waxRemover: 1.5, cottonRounds: 3, bedPaper: 2, disinfectant: 5, barbicide: 4, handSanitizer: 3 } },
+    { id: "mens-grooming-wax", name: "Men's Grooming Wax", defaults: { hardWax: 65, spatLarge: 6, gloves: 1, preCleanse: 9, preWaxOil: 3.5, babyPowder: 3, postWaxSpray: 5.5, calmingCream: 5.5, witchHazel: 6.5, waxRemover: 2, cottonRounds: 3, bedPaper: 2, disinfectant: 5, barbicide: 4, handSanitizer: 3 } },
+    // Non-wax treatments — draw only from post-care products you actually stock
+    { id: "ingrown-treatment", name: "Ingrown Hair Treatment", defaults: { gloves: 1, witchHazel: 3, waxRemover: 1, calmingCream: 2, cottonRounds: 1, bedPaper: 1, disinfectant: 3, handSanitizer: 2 } },
+    { id: "post-wax-soothing", name: "Post-Wax Soothing Treatment", defaults: { gloves: 1, postWaxSpray: 4, calmingCream: 4, witchHazel: 3, cottonRounds: 1, bedPaper: 1, disinfectant: 3, handSanitizer: 2 } },
+    // These three use products not yet in your inventory list — no recipe assigned until added
+    { id: "exfoliation-scrub", name: "Exfoliation Scrub", defaults: { gloves: 1, bedPaper: 1 } },
+    { id: "moisturizing-treatment", name: "Moisturizing Treatment", defaults: { gloves: 1, bedPaper: 1 } },
+    { id: "skin-calming-mask", name: "Skin Calming Mask", defaults: { gloves: 1, bedPaper: 1 } },
   ];
   const RECIPE_FIELDS = [
     { key: "hardWax", label: "Hard wax (g)" },
@@ -300,6 +307,19 @@
     { key: "spatMedium", label: "Spatulas — medium" },
     { key: "spatLarge", label: "Spatulas — large" },
     { key: "gloves", label: "Gloves (pairs)" },
+    { key: "preCleanse", label: "Pre cleanse (mL)" },
+    { key: "preWaxOil", label: "Pre wax oil (mL)" },
+    { key: "babyPowder", label: "Baby powder (g)" },
+    { key: "postWaxSpray", label: "Post wax spray (mL)" },
+    { key: "calmingCream", label: "Calming cream (g)" },
+    { key: "witchHazel", label: "Witch hazel (mL)" },
+    { key: "waxRemover", label: "Wax remover (mL)" },
+    { key: "cottonRounds", label: "Cotton rounds" },
+    { key: "cottonBalls", label: "Cotton balls" },
+    { key: "bedPaper", label: "Bed paper (sheets)" },
+    { key: "disinfectant", label: "EPA disinfectant (mL)" },
+    { key: "barbicide", label: "Barbicide (mL)" },
+    { key: "handSanitizer", label: "Hand sanitizer (mL)" },
   ];
   let recipes = {};
 
@@ -656,7 +676,7 @@
     }
 
     let html = `<div class="note" style="margin-bottom:18px;">
-      These numbers are researched starting estimates, not exact figures — edit any field to match what you actually observe, and it saves automatically. "Gloves" applies to every service since a fresh pair is used per appointment.
+      These numbers are estimates, not exact figures — edit any field to match what you actually observe, and it saves automatically. Wax quantities are based on researched industry data; everything else (cotton rounds, bed paper, disinfectant, etc.) is scaled by treatment area size since no published data exists for those. "Gloves" and other flat items apply per appointment regardless of size. Note: Exfoliation Scrub, Moisturizing Treatment, and Skin Calming Mask use products not currently in your inventory list, so they have no recipe yet — add those products first if you want them tracked. Wax stirs aren't in this table — they're tracked per specialist per shift, not per service.
     </div>`;
 
     SERVICES.forEach(service => {
