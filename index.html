@@ -1078,9 +1078,16 @@
       return `<option value="${o.id}">Order #${idx + 1} — ${dateStr} — $${(o.total || 0).toFixed(2)}</option>`;
     }).join("");
 
-    let html = `<div class="note" style="margin-bottom:16px;">Log completed services below as they happen (or ask Claude to bulk-sync from calendars). Then pick a specific order to bill against — the report covers everything logged between that order and the one before it.</div>
+    let html = `<div class="note" style="margin-bottom:16px;">Ask Claude to check the calendars and hand you a paste block — drop it in below and it logs everything at once. Use the single form underneath for one-off entries.</div>
     <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
-      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Log a completed service</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Bulk import from Claude</div>
+      <div style="font-size:11px;opacity:0.6;margin-bottom:8px;">One entry per line: <b>Specialist, Service, YYYY-MM-DD</b></div>
+      <textarea id="bulk-import-text" rows="5" placeholder="Zoey, Brazilian Wax, 2026-08-08&#10;Mia, Underarm Wax, 2026-09-10" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;font-size:12px;resize:vertical;"></textarea>
+      <button class="btn" id="bulk-import-btn" style="margin-top:8px;">Import all</button>
+      <div id="bulk-import-result" style="font-size:11px;margin-top:8px;"></div>
+    </div>
+    <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Log a single completed service</div>
       <div style="display:flex;flex-direction:column;gap:10px;">
         <select id="log-specialist" style="padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;">
           ${SPECIALISTS.map(s => `<option value="${s.id}">${s.name}</option>`).join("")}
@@ -1110,6 +1117,45 @@
     <div id="report-output"></div>`;
 
     reportsEl.innerHTML = html;
+
+    document.getElementById("bulk-import-btn").addEventListener("click", async () => {
+      const resultEl = document.getElementById("bulk-import-result");
+      const text = document.getElementById("bulk-import-text").value.trim();
+      if (!text) return;
+      const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+      const toImport = [];
+      const failed = [];
+      lines.forEach(line => {
+        const parts = line.split(",").map(p => p.trim());
+        if (parts.length < 3) { failed.push(line); return; }
+        const [specName, serviceName, date] = parts;
+        const specialist = SPECIALISTS.find(s => s.name.toLowerCase() === specName.toLowerCase());
+        const service = SERVICES.find(s => s.name.toLowerCase() === serviceName.toLowerCase());
+        const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
+        if (!specialist || !service || !validDate) { failed.push(line); return; }
+        toImport.push({ specialistId: specialist.id, serviceId: service.id, date });
+      });
+      if (toImport.length === 0) {
+        resultEl.innerHTML = `<span style="color:var(--error);">Nothing matched — check the format matches "Specialist, Service, YYYY-MM-DD" exactly.</span>`;
+        return;
+      }
+      resultEl.textContent = `Importing ${toImport.length}…`;
+      try {
+        for (const entry of toImport) {
+          await addDoc(serviceLogColRef, entry);
+        }
+        let msg = `<span style="color:var(--gold);">Imported ${toImport.length} entr${toImport.length === 1 ? "y" : "ies"}.</span>`;
+        if (failed.length > 0) {
+          msg += `<br/><span style="color:var(--error);">${failed.length} line${failed.length > 1 ? "s" : ""} couldn't be matched and were skipped:</span><br/>${failed.map(l => `<span style="opacity:0.7;">${l}</span>`).join("<br/>")}`;
+        }
+        resultEl.innerHTML = msg;
+        document.getElementById("bulk-import-text").value = failed.join("\n");
+        flashToast(`Imported ${toImport.length} service${toImport.length > 1 ? "s" : ""}`);
+      } catch (e) {
+        console.error("Bulk import failed", e);
+        resultEl.innerHTML = `<span style="color:var(--error);">Import failed partway — check connection and try again with what's left in the box.</span>`;
+      }
+    });
 
     document.getElementById("log-service-btn").addEventListener("click", async () => {
       const specialistId = document.getElementById("log-specialist").value;
