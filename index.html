@@ -278,6 +278,7 @@
   const serviceLogColRef = collection(db, "service-log");
   const receiptsColRef = collection(db, "receipts");
   const savedReportsColRef = collection(db, "saved-reports");
+  const openDraftsColRef = collection(db, "open-drafts");
 
   // Resizes/compresses an image file in-browser and returns a small base64 data URL,
   // small enough to store directly in a Firestore document (free — no Storage/Blaze needed).
@@ -1112,6 +1113,14 @@
     reportsEl.innerHTML = `<div class="status-line">Loading orders…</div>`;
 
     try {
+      const openDraftsSnap = await getDocs(openDraftsColRef);
+      openDraftsSnap.forEach(d => {
+        const data = d.data();
+        activeDraftKeys.add(`${data.specialistId}::${data.orderId}`);
+      });
+    } catch (e) { console.error("Couldn't load open drafts", e); }
+
+    try {
       const q = query(ordersColRef, orderBy("orderedAt", "asc"));
       const snap = await getDocs(q);
       allOrdersCache = [];
@@ -1396,7 +1405,9 @@
   }
 
   async function generateReport(specialistId, orderId) {
-    activeDraftKeys.add(`${specialistId}::${orderId}`);
+    const draftKey = `${specialistId}::${orderId}`;
+    activeDraftKeys.add(draftKey);
+    setDoc(doc(db, "open-drafts", draftKey), { specialistId, orderId, openedAt: serverTimestamp() }).catch(e => console.error("Couldn't persist open draft", e));
     const outputEl = getOrCreateDraftContainer(specialistId);
     outputEl.innerHTML = `<div class="status-line">Generating report…</div>`;
 
@@ -1573,7 +1584,8 @@
     const discardBtn = document.getElementById(`discard-draft-${specialistId}`);
     if (discardBtn) {
       discardBtn.addEventListener("click", () => {
-        activeDraftKeys.delete(`${specialistId}::${orderId}`);
+        activeDraftKeys.delete(draftKey);
+        deleteDoc(doc(db, "open-drafts", draftKey)).catch(e => console.error(e));
         outputEl.remove();
       });
     }
@@ -1602,7 +1614,8 @@
         });
         flashToast(`Saved — ${specialist.name} can now see this in her report view`);
         e.target.textContent = "Saved ✓";
-        activeDraftKeys.delete(`${specialistId}::${orderId}`);
+        activeDraftKeys.delete(draftKey);
+        deleteDoc(doc(db, "open-drafts", draftKey)).catch(e => console.error(e));
         const draftBadge = e.target.closest('div[style*="dashed"]');
         if (draftBadge) {
           draftBadge.style.border = "1px solid var(--gold)";
