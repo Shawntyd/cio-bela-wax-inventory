@@ -206,6 +206,7 @@
       <button id="tab-history">Order History</button>
       <button id="tab-recipes">Recipes</button>
       <button id="tab-reports">Reports</button>
+      <button id="tab-myreport">My Report</button>
     </div>
   </div>
 </div>
@@ -227,6 +228,15 @@
   <div id="history-view" class="hidden"></div>
   <div id="recipes-view" class="hidden"></div>
   <div id="reports-view" class="hidden"></div>
+  <div id="myreport-lock" class="hidden">
+    <div class="lock-box">
+      <div class="lock-title">Enter your personal report passcode</div>
+      <input class="lock-input" id="myreport-passcode-input" type="password" inputmode="numeric" placeholder="Passcode" />
+      <div style="margin-top:14px;"><button class="btn" id="myreport-unlock-btn">Unlock</button></div>
+      <div class="lock-error hidden" id="myreport-passcode-error">That's not a recognized passcode.</div>
+    </div>
+  </div>
+  <div id="myreport-view" class="hidden"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -246,7 +256,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
     getFirestore, doc, onSnapshot, setDoc, getDoc,
-    collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp, deleteDoc, arrayUnion
+    collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp, deleteDoc, arrayUnion, where
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -265,6 +275,7 @@
   const recipesDocRef = doc(db, "recipes", "config");
   const serviceLogColRef = collection(db, "service-log");
   const receiptsColRef = collection(db, "receipts");
+  const savedReportsColRef = collection(db, "saved-reports");
 
   // Resizes/compresses an image file in-browser and returns a small base64 data URL,
   // small enough to store directly in a Firestore document (free — no Storage/Blaze needed).
@@ -351,6 +362,7 @@
   let recipes = {};
 
   const OWNER_PASSCODE = "4834";
+  const SPECIALIST_PASSCODES = { zoey: "2201", mia: "3302" };
   const SKIP_PASSCODE = false;
   const ASIN_RE = /^[A-Z0-9]{10}$/i;
 
@@ -1209,8 +1221,123 @@
           Charge = ${pct}% × $${orderTotal.toFixed(2)} = <b>$${charge.toFixed(2)}</b>.
         </div>
       </div>
+      <div style="text-align:center;margin-top:16px;">
+        <button class="btn" id="save-report-btn">Save & finalize this report</button>
+        <div style="font-size:10px;opacity:0.55;margin-top:6px;">Locks this exact snapshot for ${specialist.name} to see in her own report view.</div>
+      </div>
     </div>`;
     outputEl.innerHTML = html;
+
+    document.getElementById("save-report-btn").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = "Saving…";
+      try {
+        await addDoc(savedReportsColRef, {
+          specialistId,
+          specialistName: specialist.name,
+          orderIndex,
+          orderId,
+          orderTotal,
+          periodLabel,
+          pct,
+          charge,
+          servicesPerformed,
+          specialistTotals,
+          everyoneWax,
+          specialistWax,
+          receiptUrls: orderReceipts.map(r => r.imageData),
+          recipeSnapshot: Object.fromEntries(servicesPerformed.map(([sid]) => [sid, recipes[sid] || {}])),
+          savedAt: serverTimestamp(),
+        });
+        flashToast(`Saved — ${specialist.name} can now see this in her report view`);
+        e.target.textContent = "Saved ✓";
+      } catch (err) {
+        console.error("Couldn't save report", err);
+        flashToast("Couldn't save — check connection");
+        e.target.disabled = false;
+        e.target.textContent = "Save & finalize this report";
+      }
+    });
+  }
+
+  let myUnlockedSpecialistId = null;
+
+  async function renderMyReports() {
+    const el = document.getElementById("myreport-view");
+    el.innerHTML = `<div class="status-line">Loading your reports…</div>`;
+    const specialist = SPECIALISTS.find(s => s.id === myUnlockedSpecialistId);
+    try {
+      const q = query(savedReportsColRef, where("specialistId", "==", myUnlockedSpecialistId), orderBy("savedAt", "desc"));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        el.innerHTML = `<div class="empty-box">
+          <div class="empty-title">No saved reports yet</div>
+          <div class="empty-sub">Once a report is generated and saved for you, it'll show up here.</div>
+        </div>`;
+        return;
+      }
+      let html = `<div class="status-line">Showing reports for ${specialist ? specialist.name : ""} only.</div>`;
+      snap.forEach(docSnap => {
+        const r = docSnap.data();
+        const savedDateStr = r.savedAt?.toDate ? r.savedAt.toDate().toLocaleDateString() : "";
+        const pieDeg = Math.round((r.pct || 0) * 3.6);
+        html += `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:12px;padding:20px;margin-bottom:16px;">
+          <div style="text-align:center;margin-bottom:16px;">
+            <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${r.specialistName}'s Consumption Report</div>
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold);margin-top:4px;">Period: ${r.periodLabel} · Saved ${savedDateStr}</div>
+          </div>
+          <div style="text-align:center;background:linear-gradient(135deg, var(--bark), #241a12);color:var(--cream);border-radius:12px;padding:16px;margin-bottom:18px;">
+            <div style="font-size:10.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold-light);opacity:0.85;">Your Share of This Order's Cost</div>
+            <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:38px;margin:4px 0 2px;">$${(r.charge || 0).toFixed(2)}</div>
+            <div style="font-size:11px;opacity:0.65;">${r.pct}% of $${(r.orderTotal || 0).toFixed(2)} total</div>
+          </div>
+          <div style="display:flex;justify-content:center;margin:20px 0;">
+            <div style="width:130px;height:130px;border-radius:50%;background:conic-gradient(var(--gold) 0deg ${pieDeg}deg, rgba(44,32,22,0.12) ${pieDeg}deg 360deg);display:flex;align-items:center;justify-content:center;">
+              <div style="width:88px;height:88px;border-radius:50%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${r.pct}%</div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">of wax used</div>
+              </div>
+            </div>
+          </div>
+          <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;">
+            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Services performed</div>
+            ${(r.servicesPerformed || []).map(([sid, count]) => {
+              const s = SERVICES.find(x => x.id === sid);
+              return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${s ? s.name : sid}</span><span style="opacity:0.7;">× ${count}</span></div>`;
+            }).join("")}
+          </div>
+          <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Estimated consumption</div>
+            ${RECIPE_FIELDS.filter(f => (r.specialistTotals || {})[f.key] > 0).map(f =>
+              `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${f.label}</span><span style="opacity:0.7;">${r.specialistTotals[f.key].toFixed(1)}</span></div>`
+            ).join("")}
+          </div>
+          ${(r.receiptUrls || []).length > 0 ? `
+            <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+              <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Receipts</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                ${r.receiptUrls.map(url => `<img src="${url}" class="receipt-thumb" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--gold-light);display:block;cursor:pointer;" />`).join("")}
+              </div>
+            </div>` : ""}
+          <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+            <div style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">These conclusions were based on the following data</div>
+            <div style="font-size:11px;opacity:0.7;line-height:1.6;">
+              Recipe values in effect when this report was saved:
+              ${(r.servicesPerformed || []).map(([sid]) => {
+                const s = SERVICES.find(x => x.id === sid);
+                const rec = (r.recipeSnapshot || {})[sid] || {};
+                const parts = RECIPE_FIELDS.filter(f => rec[f.key]).map(f => `${f.label.toLowerCase()}: ${rec[f.key]}`).join(", ");
+                return `<br/>— ${s ? s.name : sid}: ${parts || "no recipe set"}`;
+              }).join("")}
+            </div>
+          </div>
+        </div>`;
+      });
+      el.innerHTML = html;
+    } catch (e) {
+      console.error("Couldn't load your reports", e);
+      el.innerHTML = `<div class="empty-box"><div class="empty-sub">Couldn't load your reports — check your connection and try again.</div></div>`;
+    }
   }
 
   function switchView(v) {
@@ -1221,10 +1348,13 @@
     document.getElementById("tab-history").classList.toggle("active", v === "history");
     document.getElementById("tab-recipes").classList.toggle("active", v === "recipes");
     document.getElementById("tab-reports").classList.toggle("active", v === "reports");
+    document.getElementById("tab-myreport").classList.toggle("active", v === "myreport");
     teamViewEl.classList.toggle("hidden", v !== "team");
     document.getElementById("history-view").classList.toggle("hidden", v !== "history");
     document.getElementById("recipes-view").classList.toggle("hidden", v !== "recipes" || !(unlocked || SKIP_PASSCODE));
     document.getElementById("reports-view").classList.toggle("hidden", v !== "reports" || !(unlocked || SKIP_PASSCODE));
+    document.getElementById("myreport-view").classList.toggle("hidden", v !== "myreport" || !myUnlockedSpecialistId);
+    document.getElementById("myreport-lock").classList.toggle("hidden", v !== "myreport" || !!myUnlockedSpecialistId);
 
     if (v === "history") {
       ownerLockEl.classList.add("hidden");
@@ -1232,6 +1362,7 @@
       renderHistory();
     } else if (v === "team") {
       unlocked = SKIP_PASSCODE;
+      myUnlockedSpecialistId = null;
       ownerLockEl.classList.add("hidden");
       ownerViewEl.classList.add("hidden");
     } else if (v === "recipes") {
@@ -1250,6 +1381,11 @@
       } else {
         ownerLockEl.classList.remove("hidden");
       }
+    } else if (v === "myreport") {
+      ownerViewEl.classList.add("hidden");
+      if (myUnlockedSpecialistId) {
+        renderMyReports();
+      }
     } else {
       ownerViewEl.classList.toggle("hidden", !(unlocked || SKIP_PASSCODE));
       if (unlocked || SKIP_PASSCODE) {
@@ -1264,11 +1400,31 @@
   }
 
   document.getElementById("tab-reports").addEventListener("click", () => switchView("reports"));
+  document.getElementById("tab-myreport").addEventListener("click", () => switchView("myreport"));
   document.getElementById("tab-recipes").addEventListener("click", () => switchView("recipes"));
   document.getElementById("tab-team").addEventListener("click", () => switchView("team"));
   document.getElementById("tab-owner").addEventListener("click", () => switchView("owner"));
   document.getElementById("tab-history").addEventListener("click", () => switchView("history"));
   document.getElementById("unlock-btn").addEventListener("click", tryUnlock);
+  document.getElementById("myreport-unlock-btn").addEventListener("click", tryMyReportUnlock);
+  document.getElementById("myreport-passcode-input").addEventListener("keydown", e => { if (e.key === "Enter") tryMyReportUnlock(); });
+
+  function tryMyReportUnlock() {
+    const input = document.getElementById("myreport-passcode-input");
+    const errorEl = document.getElementById("myreport-passcode-error");
+    const match = Object.entries(SPECIALIST_PASSCODES).find(([id, code]) => code === input.value);
+    if (match) {
+      myUnlockedSpecialistId = match[0];
+      input.value = "";
+      errorEl.classList.add("hidden");
+      document.getElementById("myreport-lock").classList.add("hidden");
+      document.getElementById("myreport-view").classList.remove("hidden");
+      renderMyReports();
+    } else {
+      errorEl.classList.remove("hidden");
+      input.classList.add("error");
+    }
+  }
   document.getElementById("passcode-input").addEventListener("keydown", e => { if (e.key === "Enter") tryUnlock(); });
 
   function tryUnlock() {
