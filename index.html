@@ -191,6 +191,7 @@
 </style>
 </head>
 <body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
 <div class="hero-screen">
   <div class="hero">
@@ -431,6 +432,42 @@
     toastEl.textContent = msg;
     toastEl.style.display = "block";
     setTimeout(() => { toastEl.style.display = "none"; }, 2200);
+  }
+
+  async function shareReportImage(containerId, filenameBase) {
+    if (typeof html2canvas === "undefined") {
+      flashToast("Still loading — try again in a second");
+      return;
+    }
+    const el = document.getElementById(containerId);
+    if (!el) { flashToast("Couldn't find report to share"); return; }
+    try {
+      const canvas = await html2canvas(el, { backgroundColor: "#F5F0E8", scale: 2 });
+      canvas.toBlob(async (blob) => {
+        if (!blob) { flashToast("Couldn't create image"); return; }
+        const file = new File([blob], `${filenameBase}.png`, { type: "image/png" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: filenameBase });
+          } catch (e) {
+            // user cancelled the native share sheet — not an error
+          }
+        } else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${filenameBase}.png`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          flashToast("Downloaded — attach it to a message");
+        }
+      }, "image/png");
+    } catch (e) {
+      console.error("Couldn't capture report image", e);
+      flashToast("Couldn't create image to share");
+    }
   }
 
   const lightboxEl = document.getElementById("receipt-lightbox");
@@ -1443,6 +1480,7 @@
         <div style="flex:1;text-align:center;background:var(--error);color:white;border-radius:6px;padding:5px;font-size:10.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;">Draft — not saved or visible to ${specialist.name} yet</div>
         <button id="discard-draft-${specialistId}" style="background:transparent;color:var(--error);border:1px solid var(--error);border-radius:6px;font-size:10.5px;padding:5px 8px;cursor:pointer;white-space:nowrap;">Discard</button>
       </div>
+      <div id="report-capture-${specialistId}" style="background:var(--cream);padding:4px;">
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${specialist.name}'s Consumption Report</div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold);margin-top:4px;">Period: ${periodLabel}</div>
@@ -1518,12 +1556,21 @@
           Charge = ${pct}% × $${orderTotal.toFixed(2)} = <b>$${charge.toFixed(2)}</b>.
         </div>
       </div>
-      <div style="text-align:center;margin-top:16px;">
-        <button class="btn" id="save-report-btn">Save & finalize this report</button>
-        <div style="font-size:10px;opacity:0.55;margin-top:6px;">Locks this exact snapshot for ${specialist.name} to see in her own report view.</div>
       </div>
+      <div style="text-align:center;margin-top:16px;display:flex;gap:8px;justify-content:center;">
+        <button class="btn" id="save-report-btn">Save & finalize this report</button>
+        <button class="btn muted" id="share-report-btn-${specialistId}">Share with ${specialist.name}</button>
+      </div>
+      <div style="font-size:10px;opacity:0.55;margin-top:6px;text-align:center;">Locks this exact snapshot for ${specialist.name} to see in her own report view.</div>
     </div>`;
     outputEl.innerHTML = html;
+
+    const shareBtn = document.getElementById(`share-report-btn-${specialistId}`);
+    if (shareBtn) {
+      shareBtn.addEventListener("click", () => {
+        shareReportImage(`report-capture-${specialistId}`, `${specialist.name}-consumption-report`);
+      });
+    }
 
     const discardBtn = document.getElementById(`discard-draft-${specialistId}`);
     if (discardBtn) {
