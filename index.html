@@ -436,7 +436,16 @@
     setTimeout(() => { toastEl.style.display = "none"; }, 2200);
   }
 
-  async function downloadReportPDF(containerId, filenameBase) {
+  function loadImageDimensions(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+
+  async function downloadReportPDF(containerId, filenameBase, receiptImages = []) {
     if (typeof html2canvas === "undefined" || typeof window.jspdf === "undefined") {
       flashToast("Still loading — try again in a second");
       return;
@@ -449,6 +458,28 @@
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({ unit: "px", format: [canvas.width, canvas.height] });
       pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+
+      if (receiptImages.length > 0) {
+        // Divider page announcing the full-size receipts that follow
+        pdf.addPage([canvas.width, 200]);
+        pdf.setFillColor(44, 32, 22);
+        pdf.rect(0, 0, canvas.width, 200, "F");
+        pdf.setTextColor(245, 240, 232);
+        pdf.setFontSize(28);
+        pdf.text("Receipts", canvas.width / 2, 115, { align: "center" });
+
+        for (const src of receiptImages) {
+          try {
+            const dims = await loadImageDimensions(src);
+            pdf.addPage([dims.width, dims.height]);
+            const format = src.startsWith("data:image/png") ? "PNG" : "JPEG";
+            pdf.addImage(src, format, 0, 0, dims.width, dims.height);
+          } catch (e) {
+            console.error("Couldn't add a receipt page", e);
+          }
+        }
+      }
+
       const pdfBlob = pdf.output("blob");
       const file = new File([pdfBlob], `${filenameBase}.pdf`, { type: "application/pdf" });
 
@@ -1080,6 +1111,47 @@
     });
   }
 
+  const PIE_COLORS = ["#B8935A", "#D4B896", "#2C2016", "#8a7256", "#6b5636", "#c9a876", "#4a3826"];
+
+  function buildServicePie(servicesPerformedArr, recipeLookupFn) {
+    const weighted = servicesPerformedArr.map(([sid, count]) => {
+      const svc = SERVICES.find(s => s.id === sid);
+      const rec = recipeLookupFn(sid) || {};
+      const grams = ((rec.hardWax || 0) + (rec.softWax || 0)) * count;
+      return { sid, name: svc ? svc.name : sid, count, grams };
+    }).filter(w => w.grams > 0).sort((a, b) => b.grams - a.grams);
+
+    const total = weighted.reduce((s, w) => s + w.grams, 0);
+    if (total <= 0) {
+      return `<div style="font-size:12px;opacity:0.6;">No wax-based services to chart this period.</div>`;
+    }
+
+    const r = 52, circumference = 2 * Math.PI * r;
+    let offset = 0;
+    const circles = weighted.map((w, i) => {
+      const dash = (w.grams / total) * circumference;
+      const circle = `<circle cx="60" cy="60" r="${r}" fill="none" stroke="${PIE_COLORS[i % PIE_COLORS.length]}" stroke-width="24" stroke-dasharray="${dash} ${circumference}" stroke-dashoffset="${-offset}" transform="rotate(-90 60 60)"/>`;
+      offset += dash;
+      return circle;
+    }).join("");
+
+    const legend = weighted.map((w, i) =>
+      `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;padding:2px 0;">
+        <span style="width:10px;height:10px;border-radius:3px;background:${PIE_COLORS[i % PIE_COLORS.length]};flex-shrink:0;"></span>
+        <span style="flex:1;">${w.name} × ${w.count}</span>
+        <span style="opacity:0.6;">${Math.round((w.grams / total) * 100)}%</span>
+      </div>`
+    ).join("");
+
+    return `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+      <svg width="120" height="120" viewBox="0 0 120 120" style="flex-shrink:0;">
+        <circle cx="60" cy="60" r="${r}" fill="none" stroke="#f0e9dd" stroke-width="24"/>
+        ${circles}
+      </svg>
+      <div style="flex:1;min-width:140px;">${legend}</div>
+    </div>`;
+  }
+
   function effectiveRecipe(serviceId) {
     const service = SERVICES.find(s => s.id === serviceId);
     const saved = recipes[serviceId] || {};
@@ -1483,6 +1555,29 @@
       return;
     }
 
+    let previousReport = null;
+    try {
+      const prevQ = query(savedReportsColRef, where("specialistId", "==", specialistId), orderBy("savedAt", "desc"), limit(10));
+      const prevSnap = await getDocs(prevQ);
+      prevSnap.forEach(d => {
+        const data = d.data();
+        if (!previousReport && data.orderIndex < orderIndex) previousReport = data;
+      });
+    } catch (e) { console.error("Couldn't load previous report for comparison", e); }
+
+    let trendHtml = "";
+    if (previousReport) {
+      const prevCount = (previousReport.specialistAppointments || []).length
+        || (previousReport.servicesPerformed || []).reduce((s, [, c]) => s + c, 0);
+      const diff = totalServices - prevCount;
+      const pctChange = prevCount > 0 ? Math.round((diff / prevCount) * 100) : null;
+      const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "—";
+      const color = diff > 0 ? "var(--gold)" : diff < 0 ? "var(--error)" : "inherit";
+      trendHtml = `<div style="text-align:center;font-size:11.5px;color:${color};margin-top:6px;">
+        ${arrow} ${Math.abs(diff)} ${diff === 0 ? "" : (diff > 0 ? "more" : "fewer")} service${Math.abs(diff) === 1 ? "" : "s"} than her last confirmed period (${prevCount})${pctChange !== null ? ` — ${pctChange >= 0 ? "+" : ""}${pctChange}%` : ""}
+      </div>`;
+    }
+
     const pieDeg = Math.round(pct * 3.6);
     let html = `<div style="background:white;border:2px dashed var(--error);border-radius:12px;padding:20px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
@@ -1493,6 +1588,7 @@
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${specialist.name}'s Consumption Report</div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold);margin-top:4px;">Period: ${periodLabel}</div>
+        ${trendHtml}
       </div>
       <div style="text-align:center;background:linear-gradient(135deg, var(--bark), #241a12);color:var(--cream);border-radius:12px;padding:16px;margin-bottom:18px;">
         <div style="font-size:10.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold-light);opacity:0.85;">Share of Order #${orderIndex + 1}'s Cost</div>
@@ -1513,6 +1609,10 @@
           const s = SERVICES.find(x => x.id === sid);
           return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${s ? s.name : sid}</span><span style="opacity:0.7;">× ${count}</span></div>`;
         }).join("")}
+      </div>
+      <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+        <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Consumption by service</div>
+        ${buildServicePie(servicesPerformed, effectiveRecipe)}
       </div>
       <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Appointment detail — for your own records</div>
@@ -1577,7 +1677,7 @@
     const pdfBtn = document.getElementById(`pdf-report-btn-${specialistId}`);
     if (pdfBtn) {
       pdfBtn.addEventListener("click", () => {
-        downloadReportPDF(`report-capture-${specialistId}`, `${specialist.name}-consumption-report`);
+        downloadReportPDF(`report-capture-${specialistId}`, `${specialist.name}-consumption-report`, orderReceipts.map(r => r.imageData));
       });
     }
 
@@ -1651,14 +1751,28 @@
         return;
       }
       let html = `<div class="status-line">Showing reports for ${specialist ? specialist.name : ""} only.</div>`;
-      snap.forEach(docSnap => {
+      snap.docs.forEach((docSnap, idx) => {
         const r = docSnap.data();
+        const previous = idx + 1 < snap.docs.length ? snap.docs[idx + 1].data() : null;
+        let trendHtml = "";
+        if (previous) {
+          const curCount = (r.specialistAppointments || []).length || (r.servicesPerformed || []).reduce((s, [, c]) => s + c, 0);
+          const prevCount = (previous.specialistAppointments || []).length || (previous.servicesPerformed || []).reduce((s, [, c]) => s + c, 0);
+          const diff = curCount - prevCount;
+          const pctChange = prevCount > 0 ? Math.round((diff / prevCount) * 100) : null;
+          const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "—";
+          const color = diff > 0 ? "var(--gold)" : diff < 0 ? "var(--error)" : "inherit";
+          trendHtml = `<div style="text-align:center;font-size:11.5px;color:${color};margin-top:6px;">
+            ${arrow} ${Math.abs(diff)} ${diff === 0 ? "" : (diff > 0 ? "more" : "fewer")} service${Math.abs(diff) === 1 ? "" : "s"} than her previous period (${prevCount})${pctChange !== null ? ` — ${pctChange >= 0 ? "+" : ""}${pctChange}%` : ""}
+          </div>`;
+        }
         const savedDateStr = r.savedAt?.toDate ? r.savedAt.toDate().toLocaleDateString() : "";
         const pieDeg = Math.round((r.pct || 0) * 3.6);
         html += `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:12px;padding:20px;margin-bottom:16px;">
           <div style="text-align:center;margin-bottom:16px;">
             <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${r.specialistName}'s Consumption Report</div>
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold);margin-top:4px;">Period: ${r.periodLabel} · Saved ${savedDateStr}</div>
+            ${trendHtml}
           </div>
           <div style="text-align:center;background:linear-gradient(135deg, var(--bark), #241a12);color:var(--cream);border-radius:12px;padding:16px;margin-bottom:18px;">
             <div style="font-size:10.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold-light);opacity:0.85;">Your Share of This Order's Cost</div>
@@ -1679,6 +1793,10 @@
               const s = SERVICES.find(x => x.id === sid);
               return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${s ? s.name : sid}</span><span style="opacity:0.7;">× ${count}</span></div>`;
             }).join("")}
+          </div>
+          <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Consumption by service</div>
+            ${buildServicePie(r.servicesPerformed || [], (sid) => (r.recipeSnapshot || {})[sid])}
           </div>
           <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
             <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Appointment detail — for your own records</div>
