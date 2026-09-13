@@ -1244,6 +1244,86 @@
   let allOrdersCache = [];
   let activeDraftKeys = new Set();
 
+  function renderLogRows(logs, billedSignatures) {
+    if (logs.length === 0) return `<div style="font-size:12px;opacity:0.5;padding:8px 0;">No matching entries.</div>`;
+    return logs.map(l => {
+      const s = SPECIALISTS.find(x => x.id === l.specialistId);
+      const svc = SERVICES.find(x => x.id === l.serviceId);
+      const sig = `${l.specialistId}::${l.serviceId}::${l.date}::${l.clientName || ""}`;
+      const isBilled = billedSignatures.has(sig);
+      const badge = isBilled
+        ? `<span style="font-size:9px;text-transform:uppercase;letter-spacing:0.04em;background:rgba(184,147,90,0.15);color:var(--gold);border-radius:4px;padding:1px 5px;margin-left:6px;">Billed</span>`
+        : `<span style="font-size:9px;text-transform:uppercase;letter-spacing:0.04em;background:rgba(44,32,22,0.08);color:var(--bark);border-radius:4px;padding:1px 5px;margin-left:6px;opacity:0.6;">Pending</span>`;
+      return `<div id="log-row-${l.id}" style="padding:5px 0;border-bottom:1px solid rgba(44,32,22,0.06);">
+        <div id="log-view-${l.id}" style="display:flex;justify-content:space-between;align-items:center;font-size:12px;flex-wrap:wrap;">
+          <span>${l.date} — ${s ? s.name : l.specialistId} — ${svc ? svc.name : l.serviceId}${l.clientName ? ` — ${l.clientName}` : ""}${badge}</span>
+          <span>
+            <button data-edit-log="${l.id}" style="background:transparent;color:var(--gold);border:none;font-size:11px;text-decoration:underline;cursor:pointer;padding:2px 6px;">Edit</button>
+            <button data-delete-log="${l.id}" style="background:transparent;color:var(--error);border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px 6px;">×</button>
+          </span>
+        </div>
+        <div id="log-edit-${l.id}" class="hidden" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+          <select data-edit-log-specialist="${l.id}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;">
+            ${SPECIALISTS.map(sp => `<option value="${sp.id}" ${sp.id === l.specialistId ? "selected" : ""}>${sp.name}</option>`).join("")}
+          </select>
+          <select data-edit-log-service="${l.id}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;">
+            ${SERVICES.map(sv => `<option value="${sv.id}" ${sv.id === l.serviceId ? "selected" : ""}>${sv.name}</option>`).join("")}
+          </select>
+          <input type="date" data-edit-log-date="${l.id}" value="${l.date}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;" />
+          <input type="text" data-edit-log-client="${l.id}" value="${(l.clientName || "").replace(/"/g, '&quot;')}" placeholder="Client name" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;width:110px;" />
+          <button data-save-log="${l.id}" style="background:var(--gold);color:var(--charcoal);border:none;border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;">Save</button>
+          <button data-cancel-log="${l.id}" style="background:transparent;color:var(--bark);border:1px solid var(--bark);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;">Cancel</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  function wireLogRowListeners() {
+    document.querySelectorAll("[data-edit-log]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.editLog;
+        document.getElementById(`log-view-${id}`).classList.add("hidden");
+        document.getElementById(`log-edit-${id}`).classList.remove("hidden");
+      });
+    });
+    document.querySelectorAll("[data-cancel-log]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.cancelLog;
+        document.getElementById(`log-edit-${id}`).classList.add("hidden");
+        document.getElementById(`log-view-${id}`).classList.remove("hidden");
+      });
+    });
+    document.querySelectorAll("[data-save-log]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.saveLog;
+        const specialistId = document.querySelector(`[data-edit-log-specialist="${id}"]`).value;
+        const serviceId = document.querySelector(`[data-edit-log-service="${id}"]`).value;
+        const date = document.querySelector(`[data-edit-log-date="${id}"]`).value;
+        const clientName = document.querySelector(`[data-edit-log-client="${id}"]`).value.trim();
+        try {
+          await setDoc(doc(db, "service-log", id), { specialistId, serviceId, date, clientName }, { merge: false });
+          flashToast("Updated");
+          renderReports();
+        } catch (e) {
+          console.error("Couldn't update log entry", e);
+          flashToast("Couldn't save — check connection");
+        }
+      });
+    });
+    document.querySelectorAll("[data-delete-log]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        try {
+          await deleteDoc(doc(db, "service-log", btn.dataset.deleteLog));
+          flashToast("Removed");
+          renderReports();
+        } catch (e) {
+          console.error("Couldn't delete log entry", e);
+          flashToast("Couldn't delete — check connection");
+        }
+      });
+    });
+  }
+
   async function renderReports() {
     const reportsEl = document.getElementById("reports-view");
     reportsEl.innerHTML = `<div class="status-line">Loading orders…</div>`;
@@ -1295,36 +1375,24 @@
       logSnap.forEach(d => recentLogs.push({ id: d.id, ...d.data() }));
       recentLogs.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     } catch (e) { console.error("Couldn't load service log", e); }
-    const shownLogs = recentLogs.slice(0, 30);
+
+    // Figure out which logged entries have already been billed in a confirmed report
+    const billedSignatures = new Set();
+    try {
+      const allSavedSnap = await getDocs(savedReportsColRef);
+      allSavedSnap.forEach(d => {
+        const data = d.data();
+        (data.specialistAppointments || []).forEach(a => {
+          billedSignatures.add(`${data.specialistId}::${a.serviceId}::${a.date}::${a.clientName || ""}`);
+        });
+      });
+    } catch (e) { console.error("Couldn't check billed status", e); }
 
     const logListHtml = `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:4px;">Logged services</div>
-      <div style="font-size:11px;opacity:0.55;margin-bottom:10px;">${recentLogs.length === 0 ? "None yet" : `Showing ${shownLogs.length} most recent of ${recentLogs.length}`}</div>
-      ${shownLogs.map(l => {
-        const s = SPECIALISTS.find(x => x.id === l.specialistId);
-        const svc = SERVICES.find(x => x.id === l.serviceId);
-        return `<div id="log-row-${l.id}" style="padding:5px 0;border-bottom:1px solid rgba(44,32,22,0.06);">
-          <div id="log-view-${l.id}" style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
-            <span>${l.date} — ${s ? s.name : l.specialistId} — ${svc ? svc.name : l.serviceId}${l.clientName ? ` — ${l.clientName}` : ""}</span>
-            <span>
-              <button data-edit-log="${l.id}" style="background:transparent;color:var(--gold);border:none;font-size:11px;text-decoration:underline;cursor:pointer;padding:2px 6px;">Edit</button>
-              <button data-delete-log="${l.id}" style="background:transparent;color:var(--error);border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px 6px;">×</button>
-            </span>
-          </div>
-          <div id="log-edit-${l.id}" class="hidden" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
-            <select data-edit-log-specialist="${l.id}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;">
-              ${SPECIALISTS.map(sp => `<option value="${sp.id}" ${sp.id === l.specialistId ? "selected" : ""}>${sp.name}</option>`).join("")}
-            </select>
-            <select data-edit-log-service="${l.id}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;">
-              ${SERVICES.map(sv => `<option value="${sv.id}" ${sv.id === l.serviceId ? "selected" : ""}>${sv.name}</option>`).join("")}
-            </select>
-            <input type="date" data-edit-log-date="${l.id}" value="${l.date}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;" />
-            <input type="text" data-edit-log-client="${l.id}" value="${(l.clientName || "").replace(/"/g, '&quot;')}" placeholder="Client name" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;width:110px;" />
-            <button data-save-log="${l.id}" style="background:var(--gold);color:var(--charcoal);border:none;border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;">Save</button>
-            <button data-cancel-log="${l.id}" style="background:transparent;color:var(--bark);border:1px solid var(--bark);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;">Cancel</button>
-          </div>
-        </div>`;
-      }).join("")}
+      <div style="font-size:11px;opacity:0.55;margin-bottom:10px;">${recentLogs.length === 0 ? "None yet" : `${recentLogs.length} total — search by name, service, or date below`}</div>
+      <input type="text" id="log-search" placeholder="Search by client, specialist, service, or date (2026-08-05)…" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;font-size:12px;margin-bottom:10px;" />
+      <div id="log-list-rows">${renderLogRows(recentLogs, billedSignatures)}</div>
     </div>`;
 
     let savedReportsCache = [];
@@ -1396,50 +1464,22 @@
       }
     });
 
-    reportsEl.querySelectorAll("[data-edit-log]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const id = btn.dataset.editLog;
-        document.getElementById(`log-view-${id}`).classList.add("hidden");
-        document.getElementById(`log-edit-${id}`).classList.remove("hidden");
-      });
-    });
-    reportsEl.querySelectorAll("[data-cancel-log]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const id = btn.dataset.cancelLog;
-        document.getElementById(`log-edit-${id}`).classList.add("hidden");
-        document.getElementById(`log-view-${id}`).classList.remove("hidden");
-      });
-    });
-    reportsEl.querySelectorAll("[data-save-log]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const id = btn.dataset.saveLog;
-        const specialistId = document.querySelector(`[data-edit-log-specialist="${id}"]`).value;
-        const serviceId = document.querySelector(`[data-edit-log-service="${id}"]`).value;
-        const date = document.querySelector(`[data-edit-log-date="${id}"]`).value;
-        const clientName = document.querySelector(`[data-edit-log-client="${id}"]`).value.trim();
-        try {
-          await setDoc(doc(db, "service-log", id), { specialistId, serviceId, date, clientName }, { merge: false });
-          flashToast("Updated");
-          renderReports();
-        } catch (e) {
-          console.error("Couldn't update log entry", e);
-          flashToast("Couldn't save — check connection");
-        }
-      });
-    });
+    wireLogRowListeners();
 
-    reportsEl.querySelectorAll("[data-delete-log]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        try {
-          await deleteDoc(doc(db, "service-log", btn.dataset.deleteLog));
-          flashToast("Removed");
-          renderReports();
-        } catch (e) {
-          console.error("Couldn't delete log entry", e);
-          flashToast("Couldn't delete — check connection");
-        }
+    const logSearchInput = document.getElementById("log-search");
+    if (logSearchInput) {
+      logSearchInput.addEventListener("input", () => {
+        const term = logSearchInput.value.trim().toLowerCase();
+        const filtered = !term ? recentLogs : recentLogs.filter(l => {
+          const s = SPECIALISTS.find(x => x.id === l.specialistId);
+          const svc = SERVICES.find(x => x.id === l.serviceId);
+          const haystack = [l.date, s?.name, svc?.name, l.clientName].filter(Boolean).join(" ").toLowerCase();
+          return haystack.includes(term);
+        });
+        document.getElementById("log-list-rows").innerHTML = renderLogRows(filtered, billedSignatures);
+        wireLogRowListeners();
       });
-    });
+    }
 
     reportsEl.querySelectorAll("[data-delete-saved-report]").forEach(btn => {
       btn.addEventListener("click", async () => {
