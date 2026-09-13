@@ -1044,12 +1044,24 @@
     });
   }
 
+  function effectiveRecipe(serviceId) {
+    const service = SERVICES.find(s => s.id === serviceId);
+    const saved = recipes[serviceId] || {};
+    const result = {};
+    RECIPE_FIELDS.forEach(f => {
+      result[f.key] = saved[f.key] !== undefined
+        ? saved[f.key]
+        : (service?.defaults?.[f.key] !== undefined ? service.defaults[f.key] : undefined);
+    });
+    return result;
+  }
+
   function consumableTotal(serviceCounts) {
     // serviceCounts: { serviceId: count }. Returns totals per recipe field across those services.
     const totals = {};
     RECIPE_FIELDS.forEach(f => totals[f.key] = 0);
     Object.entries(serviceCounts).forEach(([serviceId, count]) => {
-      const recipe = recipes[serviceId] || {};
+      const recipe = effectiveRecipe(serviceId);
       RECIPE_FIELDS.forEach(f => {
         if (recipe[f.key]) totals[f.key] += recipe[f.key] * count;
       });
@@ -1469,7 +1481,7 @@
           Recipe values used (live from the Recipes tab at the time this report was generated):
           ${servicesPerformed.map(([sid]) => {
             const s = SERVICES.find(x => x.id === sid);
-            const r = recipes[sid] || {};
+            const r = effectiveRecipe(sid);
             const parts = RECIPE_FIELDS.filter(f => r[f.key]).map(f => `${f.label.toLowerCase()}: ${r[f.key]}`).join(", ");
             return `<br/>— ${s ? s.name : sid}: ${parts || "no recipe set"}`;
           }).join("")}
@@ -1511,7 +1523,7 @@
           everyoneWax,
           specialistWax,
           receiptUrls: orderReceipts.map(r => r.imageData),
-          recipeSnapshot: Object.fromEntries(servicesPerformed.map(([sid]) => [sid, recipes[sid] || {}])),
+          recipeSnapshot: Object.fromEntries(servicesPerformed.map(([sid]) => [sid, effectiveRecipe(sid)])),
           savedAt: serverTimestamp(),
         });
         flashToast(`Saved — ${specialist.name} can now see this in her report view`);
