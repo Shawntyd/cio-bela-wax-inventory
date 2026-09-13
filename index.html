@@ -1058,6 +1058,7 @@
   }
 
   let allOrdersCache = [];
+  let activeDraftKeys = new Set();
 
   async function renderReports() {
     const reportsEl = document.getElementById("reports-view");
@@ -1317,10 +1318,29 @@
         generateReport(specialistId, orderId);
       });
     }
+
+    // Restore any drafts that were open before this refresh (e.g. from editing a log entry)
+    Array.from(activeDraftKeys).forEach(key => {
+      const [sid, oid] = key.split("::");
+      generateReport(sid, oid);
+    });
+  }
+
+  function getOrCreateDraftContainer(specialistId) {
+    const parent = document.getElementById("report-output");
+    let el = document.getElementById(`report-draft-${specialistId}`);
+    if (!el) {
+      el = document.createElement("div");
+      el.id = `report-draft-${specialistId}`;
+      el.style.marginBottom = "20px";
+      parent.appendChild(el);
+    }
+    return el;
   }
 
   async function generateReport(specialistId, orderId) {
-    const outputEl = document.getElementById("report-output");
+    activeDraftKeys.add(`${specialistId}::${orderId}`);
+    const outputEl = getOrCreateDraftContainer(specialistId);
     outputEl.innerHTML = `<div class="status-line">Generating report…</div>`;
 
     try {
@@ -1393,7 +1413,10 @@
 
     const pieDeg = Math.round(pct * 3.6);
     let html = `<div style="background:white;border:2px dashed var(--error);border-radius:12px;padding:20px;">
-      <div style="text-align:center;background:var(--error);color:white;border-radius:6px;padding:5px;font-size:10.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:14px;">Draft — not saved or visible to ${specialist.name} yet</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+        <div style="flex:1;text-align:center;background:var(--error);color:white;border-radius:6px;padding:5px;font-size:10.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;">Draft — not saved or visible to ${specialist.name} yet</div>
+        <button id="discard-draft-${specialistId}" style="background:transparent;color:var(--error);border:1px solid var(--error);border-radius:6px;font-size:10.5px;padding:5px 8px;cursor:pointer;white-space:nowrap;">Discard</button>
+      </div>
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${specialist.name}'s Consumption Report</div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold);margin-top:4px;">Period: ${periodLabel}</div>
@@ -1458,6 +1481,14 @@
     </div>`;
     outputEl.innerHTML = html;
 
+    const discardBtn = document.getElementById(`discard-draft-${specialistId}`);
+    if (discardBtn) {
+      discardBtn.addEventListener("click", () => {
+        activeDraftKeys.delete(`${specialistId}::${orderId}`);
+        outputEl.remove();
+      });
+    }
+
     document.getElementById("save-report-btn").addEventListener("click", async (e) => {
       e.target.disabled = true;
       e.target.textContent = "Saving…";
@@ -1481,6 +1512,7 @@
         });
         flashToast(`Saved — ${specialist.name} can now see this in her report view`);
         e.target.textContent = "Saved ✓";
+        activeDraftKeys.delete(`${specialistId}::${orderId}`);
         const draftBadge = e.target.closest('div[style*="dashed"]');
         if (draftBadge) {
           draftBadge.style.border = "1px solid var(--gold)";
