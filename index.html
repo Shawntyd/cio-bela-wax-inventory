@@ -447,49 +447,58 @@
     });
   }
 
-  async function downloadReportPDF(containerId, filenameBase, receiptImages = []) {
+  async function downloadReportPDF(sectionIds, filenameBase, receiptImages = []) {
     if (typeof html2canvas === "undefined" || typeof window.jspdf === "undefined") {
       flashToast("Still loading — try again in a second");
       return;
     }
-    const el = document.getElementById(containerId);
-    if (!el) { flashToast("Couldn't find report to export"); return; }
     try {
       if (document.fonts && document.fonts.ready) {
         await document.fonts.ready;
       }
-      const canvas = await html2canvas(el, { backgroundColor: "#F5F0E8", scale: 2, useCORS: true });
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({ unit: "pt", format: "letter" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 28;
+      const margin = 32;
       const usableWidth = pageWidth - margin * 2;
       const usableHeight = pageHeight - margin * 2;
-      const imgWidthPt = usableWidth;
-      const imgHeightPt = (canvas.height * imgWidthPt) / canvas.width;
+      let firstPage = true;
 
-      if (imgHeightPt <= usableHeight) {
-        pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, margin, imgWidthPt, imgHeightPt);
-      } else {
-        // Slice the tall report into standard Letter-size pages
-        const sliceHeightPx = Math.floor(usableHeight * (canvas.width / imgWidthPt));
-        let renderedPx = 0;
-        let firstSlice = true;
-        while (renderedPx < canvas.height) {
-          const thisSliceHeightPx = Math.min(sliceHeightPx, canvas.height - renderedPx);
-          const sliceCanvas = document.createElement("canvas");
-          sliceCanvas.width = canvas.width;
-          sliceCanvas.height = thisSliceHeightPx;
-          sliceCanvas.getContext("2d").drawImage(
-            canvas, 0, renderedPx, canvas.width, thisSliceHeightPx,
-            0, 0, canvas.width, thisSliceHeightPx
-          );
-          const sliceHeightPt = (thisSliceHeightPx * imgWidthPt) / canvas.width;
-          if (!firstSlice) pdf.addPage("letter");
-          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", margin, margin, imgWidthPt, sliceHeightPt);
-          renderedPx += thisSliceHeightPx;
-          firstSlice = false;
+      for (const sectionId of sectionIds) {
+        const el = document.getElementById(sectionId);
+        if (!el) continue;
+        const canvas = await html2canvas(el, { backgroundColor: "#F5F0E8", scale: 2, useCORS: true });
+        const imgWidthPt = usableWidth;
+        const imgHeightPt = (canvas.height * imgWidthPt) / canvas.width;
+
+        if (!firstPage) pdf.addPage("letter");
+        firstPage = false;
+
+        if (imgHeightPt <= usableHeight) {
+          // Whole section fits on one page — center it vertically for a cleaner look
+          const y = margin + (usableHeight - imgHeightPt) / 2;
+          pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, y, imgWidthPt, imgHeightPt);
+        } else {
+          // Rare: a single section is itself too tall for one page — split just that section across pages
+          const sliceHeightPx = Math.floor(usableHeight * (canvas.width / imgWidthPt));
+          let renderedPx = 0;
+          let firstSliceOfSection = true;
+          while (renderedPx < canvas.height) {
+            const thisSliceHeightPx = Math.min(sliceHeightPx, canvas.height - renderedPx);
+            const sliceCanvas = document.createElement("canvas");
+            sliceCanvas.width = canvas.width;
+            sliceCanvas.height = thisSliceHeightPx;
+            sliceCanvas.getContext("2d").drawImage(
+              canvas, 0, renderedPx, canvas.width, thisSliceHeightPx,
+              0, 0, canvas.width, thisSliceHeightPx
+            );
+            const sliceHeightPt = (thisSliceHeightPx * imgWidthPt) / canvas.width;
+            if (!firstSliceOfSection) pdf.addPage("letter");
+            pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", margin, margin, imgWidthPt, sliceHeightPt);
+            renderedPx += thisSliceHeightPx;
+            firstSliceOfSection = false;
+          }
         }
       }
 
@@ -1623,36 +1632,38 @@
         <button id="discard-draft-${specialistId}" style="background:transparent;color:var(--error);border:1px solid var(--error);border-radius:6px;font-size:10.5px;padding:5px 8px;cursor:pointer;white-space:nowrap;">Discard</button>
       </div>
       <div id="report-capture-${specialistId}" style="background:var(--cream);padding:4px;">
-      <div style="text-align:center;margin-bottom:16px;">
-        <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${specialist.name}'s Consumption Report</div>
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold);margin-top:4px;">Period: ${periodLabel}</div>
-        ${trendHtml}
-      </div>
-      <div style="text-align:center;background:linear-gradient(135deg, var(--bark), #241a12);color:var(--cream);border-radius:12px;padding:16px;margin-bottom:18px;">
-        <div style="font-size:10.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold-light);opacity:0.85;">Share of Order #${orderIndex + 1}'s Cost</div>
-        <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:38px;margin:4px 0 2px;">$${charge.toFixed(2)}</div>
-        <div style="font-size:11px;opacity:0.65;">${pct}% of $${orderTotal.toFixed(2)} total</div>
-      </div>
-      <div style="display:flex;justify-content:center;margin:20px 0;">
-        <div style="width:150px;height:150px;border-radius:50%;background:conic-gradient(var(--gold) 0deg ${pieDeg}deg, rgba(44,32,22,0.12) ${pieDeg}deg 360deg);display:flex;align-items:center;justify-content:center;">
-          <div style="width:100px;height:100px;border-radius:50%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-            <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:26px;color:var(--bark);">${pct}%</div>
-            <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">of wax used</div>
+      <div id="pdf-sec-cover-${specialistId}" style="background:var(--cream);padding:16px;">
+        <div style="text-align:center;margin-bottom:16px;">
+          <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${specialist.name}'s Consumption Report</div>
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold);margin-top:4px;">Period: ${periodLabel}</div>
+          ${trendHtml}
+        </div>
+        <div style="text-align:center;background:linear-gradient(135deg, var(--bark), #241a12);color:var(--cream);border-radius:12px;padding:16px;margin-bottom:18px;">
+          <div style="font-size:10.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold-light);opacity:0.85;">Share of Order #${orderIndex + 1}'s Cost</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:38px;margin:4px 0 2px;">$${charge.toFixed(2)}</div>
+          <div style="font-size:11px;opacity:0.65;">${pct}% of $${orderTotal.toFixed(2)} total</div>
+        </div>
+        <div style="display:flex;justify-content:center;margin:20px 0;">
+          <div style="width:150px;height:150px;border-radius:50%;background:conic-gradient(var(--gold) 0deg ${pieDeg}deg, rgba(44,32,22,0.12) ${pieDeg}deg 360deg);display:flex;align-items:center;justify-content:center;">
+            <div style="width:100px;height:100px;border-radius:50%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+              <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:26px;color:var(--bark);">${pct}%</div>
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">of wax used</div>
+            </div>
           </div>
         </div>
       </div>
-      <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;">
+      <div id="pdf-sec-services-${specialistId}" style="background:var(--cream);padding:16px;">
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Services performed (${totalServices} total)</div>
         ${servicesPerformed.map(([sid, count]) => {
           const s = SERVICES.find(x => x.id === sid);
           return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${s ? s.name : sid}</span><span style="opacity:0.7;">× ${count}</span></div>`;
         }).join("")}
       </div>
-      <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+      <div id="pdf-sec-pie-${specialistId}" style="background:var(--cream);padding:16px;">
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Consumption by service</div>
         ${buildServicePie(servicesPerformed, effectiveRecipe)}
       </div>
-      <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+      <div id="pdf-sec-appointments-${specialistId}" style="background:var(--cream);padding:16px;">
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Appointment detail — for your own records</div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
           <tr style="opacity:0.55;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">
@@ -1670,7 +1681,7 @@
           }).join("")}
         </table>
       </div>
-      <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+      <div id="pdf-sec-consumption-${specialistId}" style="background:var(--cream);padding:16px;">
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Estimated consumption</div>
         ${RECIPE_FIELDS.filter(f => specialistTotals[f.key] > 0).map(f =>
           `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${f.label}</span><span style="opacity:0.7;">${specialistTotals[f.key].toFixed(1)}</span></div>`
@@ -1686,7 +1697,7 @@
           </div>
         </div>`;
       })()}
-      <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+      <div id="pdf-sec-footer-${specialistId}" style="background:var(--cream);padding:16px;">
         <div style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">These conclusions were based on the following data</div>
         <div style="font-size:11px;opacity:0.7;line-height:1.6;">
           Billed against: Order #${orderIndex + 1}, placed ${periodEnd.toLocaleDateString()}, total $${orderTotal.toFixed(2)}.<br/>
@@ -1715,7 +1726,14 @@
     const pdfBtn = document.getElementById(`pdf-report-btn-${specialistId}`);
     if (pdfBtn) {
       pdfBtn.addEventListener("click", () => {
-        downloadReportPDF(`report-capture-${specialistId}`, `${specialist.name}-consumption-report`, orderReceipts.map(r => r.imageData));
+        downloadReportPDF([
+          `pdf-sec-cover-${specialistId}`,
+          `pdf-sec-services-${specialistId}`,
+          `pdf-sec-pie-${specialistId}`,
+          `pdf-sec-appointments-${specialistId}`,
+          `pdf-sec-consumption-${specialistId}`,
+          `pdf-sec-footer-${specialistId}`,
+        ], `${specialist.name}-consumption-report`, orderReceipts.map(r => r.imageData));
       });
     }
 
