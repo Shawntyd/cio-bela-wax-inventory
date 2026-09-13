@@ -953,6 +953,8 @@
     }
   }
 
+  let recipesEditUnlocked = false;
+
   async function renderRecipes() {
     const recipesEl = document.getElementById("recipes-view");
     recipesEl.innerHTML = `<div class="status-line">Loading recipes…</div>`;
@@ -964,8 +966,17 @@
       recipes = {};
     }
 
-    let html = `<div class="note" style="margin-bottom:18px;">
-      These numbers are estimates, not exact figures — edit any field to match what you actually observe, and it saves automatically. Wax quantities are based on researched industry data; everything else (cotton rounds, bed paper, disinfectant, etc.) is scaled by treatment area size since no published data exists for those. "Gloves" and other flat items apply per appointment regardless of size. Note: Exfoliation Scrub, Moisturizing Treatment, and Skin Calming Mask use products not currently in your inventory list, so they have no recipe yet — add those products first if you want them tracked. Wax stirs aren't in this table — they're tracked per specialist per shift, not per service.
+    let html = `<div class="note" style="margin-bottom:14px;">
+      These numbers are estimates, not exact figures. Wax quantities are based on researched industry data; everything else (cotton rounds, bed paper, disinfectant, etc.) is scaled by treatment area size since no published data exists for those. "Gloves" and other flat items apply per appointment regardless of size. Note: Exfoliation Scrub, Moisturizing Treatment, and Skin Calming Mask use products not currently in your inventory list, so they have no recipe yet. Wax stirs aren't in this table — they're tracked per specialist per shift, not per service.
+    </div>
+    <div id="recipes-edit-controls" style="margin-bottom:16px;">
+      ${recipesEditUnlocked
+        ? `<div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;color:var(--gold);font-weight:500;">Editing unlocked — changes save automatically</span>
+            <button class="btn-sm" id="recipes-lock-btn" style="background:transparent;color:var(--bark);border:1px solid var(--bark);">Done editing</button>
+          </div>`
+        : `<button class="btn muted" id="recipes-edit-btn">Edit recipes (owner only)</button>`
+      }
     </div>`;
 
     SERVICES.forEach(service => {
@@ -975,15 +986,48 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">`;
       RECIPE_FIELDS.forEach(field => {
         const val = saved[field.key] !== undefined ? saved[field.key] : (service.defaults[field.key] !== undefined ? service.defaults[field.key] : "");
-        html += `<label style="font-size:11px;opacity:0.7;display:flex;flex-direction:column;gap:3px;">
-          ${field.label}
-          <input type="text" inputmode="decimal" data-service="${service.id}" data-field="${field.key}" value="${val}" style="border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:13px;padding:4px 0;" />
-        </label>`;
+        if (val === "" || val === undefined) return;
+        html += recipesEditUnlocked
+          ? `<label style="font-size:11px;opacity:0.7;display:flex;flex-direction:column;gap:3px;">
+              ${field.label}
+              <input type="text" inputmode="decimal" data-service="${service.id}" data-field="${field.key}" value="${val}" style="border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:13px;padding:4px 0;" />
+            </label>`
+          : `<div style="font-size:11px;">
+              <div style="opacity:0.6;">${field.label}</div>
+              <div style="font-size:13px;padding:4px 0;">${val}</div>
+            </div>`;
       });
       html += `</div></div>`;
     });
 
     recipesEl.innerHTML = html;
+
+    const editBtn = document.getElementById("recipes-edit-btn");
+    if (editBtn) {
+      editBtn.addEventListener("click", () => {
+        const controls = document.getElementById("recipes-edit-controls");
+        controls.innerHTML = `
+          <input type="password" inputmode="numeric" placeholder="Passcode" id="recipes-passcode-input" style="width:80px;font-size:13px;padding:6px 8px;border-radius:6px;border:1px solid var(--gold-light);text-align:center;" />
+          <button class="btn-sm" id="recipes-unlock-confirm" style="background:var(--gold);color:var(--charcoal);border:none;margin-left:6px;">Unlock</button>`;
+        document.getElementById("recipes-unlock-confirm").addEventListener("click", () => {
+          const input = document.getElementById("recipes-passcode-input");
+          if (input.value === OWNER_PASSCODE) {
+            recipesEditUnlocked = true;
+            renderRecipes();
+          } else {
+            flashToast("Wrong passcode");
+          }
+        });
+      });
+    }
+    const lockBtn = document.getElementById("recipes-lock-btn");
+    if (lockBtn) {
+      lockBtn.addEventListener("click", () => {
+        recipesEditUnlocked = false;
+        renderRecipes();
+      });
+    }
+
     recipesEl.querySelectorAll("input[data-service]").forEach(input => {
       input.addEventListener("change", () => {
         const serviceId = input.dataset.service;
@@ -1351,7 +1395,7 @@
     document.getElementById("tab-myreport").classList.toggle("active", v === "myreport");
     teamViewEl.classList.toggle("hidden", v !== "team");
     document.getElementById("history-view").classList.toggle("hidden", v !== "history");
-    document.getElementById("recipes-view").classList.toggle("hidden", v !== "recipes" || !(unlocked || SKIP_PASSCODE));
+    document.getElementById("recipes-view").classList.toggle("hidden", v !== "recipes");
     document.getElementById("reports-view").classList.toggle("hidden", v !== "reports" || !(unlocked || SKIP_PASSCODE));
     document.getElementById("myreport-view").classList.toggle("hidden", v !== "myreport" || !myUnlockedSpecialistId);
     document.getElementById("myreport-lock").classList.toggle("hidden", v !== "myreport" || !!myUnlockedSpecialistId);
@@ -1363,16 +1407,13 @@
     } else if (v === "team") {
       unlocked = SKIP_PASSCODE;
       myUnlockedSpecialistId = null;
+      recipesEditUnlocked = false;
       ownerLockEl.classList.add("hidden");
       ownerViewEl.classList.add("hidden");
     } else if (v === "recipes") {
       ownerViewEl.classList.add("hidden");
-      if (unlocked || SKIP_PASSCODE) {
-        ownerLockEl.classList.add("hidden");
-        renderRecipes();
-      } else {
-        ownerLockEl.classList.remove("hidden");
-      }
+      ownerLockEl.classList.add("hidden");
+      renderRecipes();
     } else if (v === "reports") {
       ownerViewEl.classList.add("hidden");
       if (unlocked || SKIP_PASSCODE) {
