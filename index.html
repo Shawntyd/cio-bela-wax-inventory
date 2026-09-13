@@ -192,6 +192,7 @@
 </head>
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <div class="hero-screen">
   <div class="hero">
@@ -434,39 +435,36 @@
     setTimeout(() => { toastEl.style.display = "none"; }, 2200);
   }
 
-  async function shareReportImage(containerId, filenameBase) {
-    if (typeof html2canvas === "undefined") {
+  async function downloadReportPDF(containerId, filenameBase) {
+    if (typeof html2canvas === "undefined" || typeof window.jspdf === "undefined") {
       flashToast("Still loading — try again in a second");
       return;
     }
     const el = document.getElementById(containerId);
-    if (!el) { flashToast("Couldn't find report to share"); return; }
+    if (!el) { flashToast("Couldn't find report to export"); return; }
     try {
       const canvas = await html2canvas(el, { backgroundColor: "#F5F0E8", scale: 2 });
-      canvas.toBlob(async (blob) => {
-        if (!blob) { flashToast("Couldn't create image"); return; }
-        const file = new File([blob], `${filenameBase}.png`, { type: "image/png" });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          try {
-            await navigator.share({ files: [file], title: filenameBase });
-          } catch (e) {
-            // user cancelled the native share sheet — not an error
-          }
-        } else {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `${filenameBase}.png`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-          flashToast("Downloaded — attach it to a message");
+      const imgData = canvas.toDataURL("image/png");
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: "px", format: [canvas.width, canvas.height] });
+      pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+      const pdfBlob = pdf.output("blob");
+      const file = new File([pdfBlob], `${filenameBase}.pdf`, { type: "application/pdf" });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: filenameBase });
+          return;
+        } catch (e) {
+          // user cancelled the native share sheet — fall through to download below
+          if (e?.name === "AbortError") return;
         }
-      }, "image/png");
+      }
+      pdf.save(`${filenameBase}.pdf`);
+      flashToast("PDF downloaded — attach it to a message");
     } catch (e) {
-      console.error("Couldn't capture report image", e);
-      flashToast("Couldn't create image to share");
+      console.error("Couldn't create PDF", e);
+      flashToast("Couldn't create PDF");
     }
   }
 
@@ -1559,16 +1557,16 @@
       </div>
       <div style="text-align:center;margin-top:16px;display:flex;gap:8px;justify-content:center;">
         <button class="btn" id="save-report-btn">Save & finalize this report</button>
-        <button class="btn muted" id="share-report-btn-${specialistId}">Share with ${specialist.name}</button>
+        <button class="btn muted" id="pdf-report-btn-${specialistId}">Share PDF with ${specialist.name}</button>
       </div>
       <div style="font-size:10px;opacity:0.55;margin-top:6px;text-align:center;">Locks this exact snapshot for ${specialist.name} to see in her own report view.</div>
     </div>`;
     outputEl.innerHTML = html;
 
-    const shareBtn = document.getElementById(`share-report-btn-${specialistId}`);
-    if (shareBtn) {
-      shareBtn.addEventListener("click", () => {
-        shareReportImage(`report-capture-${specialistId}`, `${specialist.name}-consumption-report`);
+    const pdfBtn = document.getElementById(`pdf-report-btn-${specialistId}`);
+    if (pdfBtn) {
+      pdfBtn.addEventListener("click", () => {
+        downloadReportPDF(`report-capture-${specialistId}`, `${specialist.name}-consumption-report`);
       });
     }
 
