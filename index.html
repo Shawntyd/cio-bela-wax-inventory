@@ -1284,12 +1284,15 @@
         for (const entry of toImport) {
           await addDoc(serviceLogColRef, entry);
         }
-        let msg = `<span style="color:var(--gold);">Imported ${toImport.length} entr${toImport.length === 1 ? "y" : "ies"}.</span>`;
+        await renderReports();
         if (failed.length > 0) {
-          msg += `<br/><span style="color:var(--error);">${failed.length} line${failed.length > 1 ? "s" : ""} couldn't be matched and were skipped:</span><br/>${failed.map(l => `<span style="opacity:0.7;">${l}</span>`).join("<br/>")}`;
+          const newTextarea = document.getElementById("bulk-import-text");
+          const newResultEl = document.getElementById("bulk-import-result");
+          if (newTextarea) newTextarea.value = failed.join("\n");
+          if (newResultEl) {
+            newResultEl.innerHTML = `<span style="color:var(--error);">${failed.length} line${failed.length > 1 ? "s" : ""} couldn't be matched and were skipped:</span><br/>${failed.map(l => `<span style="opacity:0.7;">${l}</span>`).join("<br/>")}`;
+          }
         }
-        resultEl.innerHTML = msg;
-        document.getElementById("bulk-import-text").value = failed.join("\n");
         flashToast(`Imported ${toImport.length} service${toImport.length > 1 ? "s" : ""}`);
       } catch (e) {
         console.error("Bulk import failed", e);
