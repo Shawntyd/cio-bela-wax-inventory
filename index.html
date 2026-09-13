@@ -731,12 +731,21 @@
         ).join("");
         const editLines = (order.items || []).map((i, idx) =>
           `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;flex-wrap:wrap;">
-            <span style="flex:1;min-width:90px;">${i.name} × ${i.qty}</span>
+            <input type="checkbox" class="bundle-select-${docSnap.id}" data-bundle-idx="${idx}" style="width:15px;height:15px;flex-shrink:0;" />
+            <span style="flex:1;min-width:80px;">${i.name} × ${i.qty}</span>
             <label style="display:flex;align-items:center;gap:2px;opacity:0.7;">P $<input type="text" inputmode="decimal" value="${(i.price || 0).toFixed(2)}" data-edit-price="${idx}" style="width:50px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
             <label style="display:flex;align-items:center;gap:2px;opacity:0.7;">S $<input type="text" inputmode="decimal" value="${(i.shipping || 0).toFixed(2)}" data-edit-shipping="${idx}" style="width:50px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
             <label style="display:flex;align-items:center;gap:2px;opacity:0.7;">T $<input type="text" inputmode="decimal" value="${(i.tax || 0).toFixed(2)}" data-edit-tax="${idx}" style="width:50px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
           </div>`
         ).join("");
+        const bundleToolbar = `<div style="background:rgba(184,147,90,0.08);border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:11px;">
+          <div style="opacity:0.75;margin-bottom:6px;">Check items from the same receipt, enter that receipt's total shipping + tax, and split it across just those items:</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:2px;">Shipping $<input type="text" inputmode="decimal" placeholder="0.00" id="bundle-shipping-${docSnap.id}" style="width:56px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
+            <label style="display:flex;align-items:center;gap:2px;">Tax $<input type="text" inputmode="decimal" placeholder="0.00" id="bundle-tax-${docSnap.id}" style="width:56px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
+            <button type="button" class="btn-sm" data-apply-bundle="${docSnap.id}" style="background:var(--gold);color:var(--charcoal);border:none;">Split across checked</button>
+          </div>
+        </div>`;
         const hasBreakdown = order.subtotal !== undefined && order.tax !== undefined;
         const breakdown = hasBreakdown
           ? `<div style="border-top:1px solid rgba(44,32,22,0.08);margin-top:8px;padding-top:8px;font-size:11.5px;opacity:0.65;">
@@ -770,7 +779,7 @@
             <span style="font-size:14px;font-weight:500;color:var(--gold);" id="order-total-${docSnap.id}">$${(order.total || 0).toFixed(2)}</span>
           </div>
           <div id="view-lines-${docSnap.id}">${lines}</div>
-          <div id="edit-lines-${docSnap.id}" class="hidden">${editLines}</div>
+          <div id="edit-lines-${docSnap.id}" class="hidden">${bundleToolbar}${editLines}</div>
           <div id="breakdown-${docSnap.id}">${breakdown}</div>
           ${receiptSection}
           <div style="margin-top:10px;display:flex;justify-content:flex-end;gap:12px;">
@@ -784,6 +793,30 @@
         </div>`;
       });
       historyEl.innerHTML = html;
+
+      historyEl.querySelectorAll("[data-apply-bundle]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const orderId = btn.dataset.applyBundle;
+          const checked = Array.from(document.querySelectorAll(`.bundle-select-${orderId}:checked`));
+          if (checked.length === 0) {
+            flashToast("Check at least one item first");
+            return;
+          }
+          const shipTotal = parseFloat(document.getElementById(`bundle-shipping-${orderId}`).value) || 0;
+          const taxTotal = parseFloat(document.getElementById(`bundle-tax-${orderId}`).value) || 0;
+          const shipEach = shipTotal / checked.length;
+          const taxEach = taxTotal / checked.length;
+          const editContainer = document.getElementById(`edit-lines-${orderId}`);
+          checked.forEach(cb => {
+            const idx = cb.dataset.bundleIdx;
+            const shipInput = editContainer.querySelector(`[data-edit-shipping="${idx}"]`);
+            const taxInput = editContainer.querySelector(`[data-edit-tax="${idx}"]`);
+            if (shipInput) shipInput.value = shipEach.toFixed(2);
+            if (taxInput) taxInput.value = taxEach.toFixed(2);
+          });
+          flashToast(`Split $${shipTotal.toFixed(2)} shipping + $${taxTotal.toFixed(2)} tax across ${checked.length} item${checked.length > 1 ? "s" : ""}`);
+        });
+      });
 
       historyEl.querySelectorAll("[data-edit-order]").forEach(btn => {
         btn.addEventListener("click", () => {
