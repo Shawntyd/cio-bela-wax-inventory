@@ -1099,7 +1099,7 @@
     const periodStartDateStr = secondToLastOrder?.orderedAt?.toDate ? secondToLastOrder.orderedAt.toDate().toLocaleDateString() : null;
     const periodStartISO = secondToLastOrder?.orderedAt?.toDate ? secondToLastOrder.orderedAt.toDate().toISOString().slice(0, 10) : null;
     const claudeRequestText = lastOrder
-      ? `Check ${SPECIALISTS.map(s => s.name).join("'s and ")}'s calendars for completed services between ${periodStartISO || "the beginning of records"} and ${lastOrderISO}, and give me a bulk-import paste block in the format: Specialist, Service, YYYY-MM-DD`
+      ? `Check ${SPECIALISTS.map(s => s.name).join("'s and ")}'s calendars for completed services between ${periodStartISO || "the beginning of records"} and ${lastOrderISO}, and give me a bulk-import paste block in the format: Specialist, Service, YYYY-MM-DD, Client Name`
       : `No orders placed yet — nothing to collect.`;
     const periodBanner = `<div style="background:rgba(184,147,90,0.1);border:1px solid var(--gold-light);border-radius:8px;padding:12px 14px;margin-bottom:18px;font-size:12.5px;">
       <div>${lastOrder
@@ -1125,7 +1125,7 @@
         const svc = SERVICES.find(x => x.id === l.serviceId);
         return `<div id="log-row-${l.id}" style="padding:5px 0;border-bottom:1px solid rgba(44,32,22,0.06);">
           <div id="log-view-${l.id}" style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
-            <span>${l.date} — ${s ? s.name : l.specialistId} — ${svc ? svc.name : l.serviceId}</span>
+            <span>${l.date} — ${s ? s.name : l.specialistId} — ${svc ? svc.name : l.serviceId}${l.clientName ? ` — ${l.clientName}` : ""}</span>
             <span>
               <button data-edit-log="${l.id}" style="background:transparent;color:var(--gold);border:none;font-size:11px;text-decoration:underline;cursor:pointer;padding:2px 6px;">Edit</button>
               <button data-delete-log="${l.id}" style="background:transparent;color:var(--error);border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px 6px;">×</button>
@@ -1139,6 +1139,7 @@
               ${SERVICES.map(sv => `<option value="${sv.id}" ${sv.id === l.serviceId ? "selected" : ""}>${sv.name}</option>`).join("")}
             </select>
             <input type="date" data-edit-log-date="${l.id}" value="${l.date}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;" />
+            <input type="text" data-edit-log-client="${l.id}" value="${(l.clientName || "").replace(/"/g, '&quot;')}" placeholder="Client name" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;width:110px;" />
             <button data-save-log="${l.id}" style="background:var(--gold);color:var(--charcoal);border:none;border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;">Save</button>
             <button data-cancel-log="${l.id}" style="background:transparent;color:var(--bark);border:1px solid var(--bark);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;">Cancel</button>
           </div>
@@ -1168,8 +1169,8 @@
     ${logListHtml}
     <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Bulk import from Claude</div>
-      <div style="font-size:11px;opacity:0.6;margin-bottom:8px;">One entry per line: <b>Specialist, Service, YYYY-MM-DD</b></div>
-      <textarea id="bulk-import-text" rows="5" placeholder="Zoey, Brazilian Wax, 2026-08-08&#10;Mia, Underarm Wax, 2026-09-10" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;font-size:12px;resize:vertical;"></textarea>
+      <div style="font-size:11px;opacity:0.6;margin-bottom:8px;">One entry per line: <b>Specialist, Service, YYYY-MM-DD, Client Name</b> (client name optional, but include it whenever known)</div>
+      <textarea id="bulk-import-text" rows="5" placeholder="Zoey, Brazilian Wax, 2026-08-08, Madi Tager&#10;Mia, Underarm Wax, 2026-09-10, Miriam Lopez" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;font-size:12px;resize:vertical;"></textarea>
       <button class="btn" id="bulk-import-btn" style="margin-top:8px;">Import all</button>
       <div id="bulk-import-result" style="font-size:11px;margin-top:8px;"></div>
     </div>
@@ -1183,6 +1184,7 @@
           ${SERVICES.map(s => `<option value="${s.id}">${s.name}</option>`).join("")}
         </select>
         <input type="date" id="log-date" value="${new Date().toISOString().slice(0,10)}" style="padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;" />
+        <input type="text" id="log-client" placeholder="Client name (optional)" style="padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;" />
         <button class="btn" id="log-service-btn" style="align-self:flex-start;">Add to log</button>
       </div>
     </div>
@@ -1234,8 +1236,9 @@
         const specialistId = document.querySelector(`[data-edit-log-specialist="${id}"]`).value;
         const serviceId = document.querySelector(`[data-edit-log-service="${id}"]`).value;
         const date = document.querySelector(`[data-edit-log-date="${id}"]`).value;
+        const clientName = document.querySelector(`[data-edit-log-client="${id}"]`).value.trim();
         try {
-          await setDoc(doc(db, "service-log", id), { specialistId, serviceId, date }, { merge: false });
+          await setDoc(doc(db, "service-log", id), { specialistId, serviceId, date, clientName }, { merge: false });
           flashToast("Updated");
           renderReports();
         } catch (e) {
@@ -1281,15 +1284,16 @@
       lines.forEach(line => {
         const parts = line.split(",").map(p => p.trim());
         if (parts.length < 3) { failed.push(line); return; }
-        const [specName, serviceName, date] = parts;
+        const [specName, serviceName, date, ...rest] = parts;
+        const clientName = rest.join(", ").trim();
         const specialist = SPECIALISTS.find(s => s.name.toLowerCase() === specName.toLowerCase());
         const service = SERVICES.find(s => s.name.toLowerCase() === serviceName.toLowerCase());
         const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
         if (!specialist || !service || !validDate) { failed.push(line); return; }
-        toImport.push({ specialistId: specialist.id, serviceId: service.id, date });
+        toImport.push({ specialistId: specialist.id, serviceId: service.id, date, clientName });
       });
       if (toImport.length === 0) {
-        resultEl.innerHTML = `<span style="color:var(--error);">Nothing matched — check the format matches "Specialist, Service, YYYY-MM-DD" exactly.</span>`;
+        resultEl.innerHTML = `<span style="color:var(--error);">Nothing matched — check the format matches "Specialist, Service, YYYY-MM-DD, Client Name" exactly.</span>`;
         return;
       }
       resultEl.textContent = `Importing ${toImport.length}…`;
@@ -1317,9 +1321,11 @@
       const specialistId = document.getElementById("log-specialist").value;
       const serviceId = document.getElementById("log-service").value;
       const date = document.getElementById("log-date").value;
+      const clientName = document.getElementById("log-client").value.trim();
       try {
-        await addDoc(serviceLogColRef, { specialistId, serviceId, date });
+        await addDoc(serviceLogColRef, { specialistId, serviceId, date, clientName });
         flashToast("Logged");
+        renderReports();
       } catch (e) {
         console.error("Couldn't log service", e);
         flashToast("Couldn't save — check connection");
@@ -1408,6 +1414,10 @@
     const specialistTotals = consumableTotal(specialistCounts);
     const specialistWax = (specialistTotals.hardWax || 0) + (specialistTotals.softWax || 0);
 
+    const specialistAppointments = inPeriod
+      .filter(l => l.specialistId === specialistId)
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
     let everyoneWax = 0;
     SPECIALISTS.forEach(s => {
       const t = consumableTotal(bySpecialist[s.id] || {});
@@ -1456,6 +1466,24 @@
           const s = SERVICES.find(x => x.id === sid);
           return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${s ? s.name : sid}</span><span style="opacity:0.7;">× ${count}</span></div>`;
         }).join("")}
+      </div>
+      <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+        <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Appointment detail — for your own records</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <tr style="opacity:0.55;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">
+            <td style="padding:2px 6px 6px 0;">Date</td>
+            <td style="padding:2px 6px 6px 0;">Service</td>
+            <td style="padding:2px 0 6px 0;">Client</td>
+          </tr>
+          ${specialistAppointments.map(a => {
+            const s = SERVICES.find(x => x.id === a.serviceId);
+            return `<tr style="border-top:1px solid rgba(44,32,22,0.06);">
+              <td style="padding:4px 6px 4px 0;white-space:nowrap;">${a.date}</td>
+              <td style="padding:4px 6px 4px 0;">${s ? s.name : a.serviceId}</td>
+              <td style="padding:4px 0;opacity:0.75;">${a.clientName || "—"}</td>
+            </tr>`;
+          }).join("")}
+        </table>
       </div>
       <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Estimated consumption</div>
@@ -1519,6 +1547,7 @@
           pct,
           charge,
           servicesPerformed,
+          specialistAppointments,
           specialistTotals,
           everyoneWax,
           specialistWax,
@@ -1592,6 +1621,24 @@
               const s = SERVICES.find(x => x.id === sid);
               return `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${s ? s.name : sid}</span><span style="opacity:0.7;">× ${count}</span></div>`;
             }).join("")}
+          </div>
+          <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Appointment detail — for your own records</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <tr style="opacity:0.55;font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;">
+                <td style="padding:2px 6px 6px 0;">Date</td>
+                <td style="padding:2px 6px 6px 0;">Service</td>
+                <td style="padding:2px 0 6px 0;">Client</td>
+              </tr>
+              ${(r.specialistAppointments || []).map(a => {
+                const s = SERVICES.find(x => x.id === a.serviceId);
+                return `<tr style="border-top:1px solid rgba(44,32,22,0.06);">
+                  <td style="padding:4px 6px 4px 0;white-space:nowrap;">${a.date}</td>
+                  <td style="padding:4px 6px 4px 0;">${s ? s.name : a.serviceId}</td>
+                  <td style="padding:4px 0;opacity:0.75;">${a.clientName || "—"}</td>
+                </tr>`;
+              }).join("")}
+            </table>
           </div>
           <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
             <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Estimated consumption</div>
