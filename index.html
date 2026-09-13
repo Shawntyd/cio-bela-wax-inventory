@@ -1078,6 +1078,18 @@
       return `<option value="${o.id}">Order #${idx + 1} — ${dateStr} — $${(o.total || 0).toFixed(2)}</option>`;
     }).join("");
 
+    const lastOrder = allOrdersCache[allOrdersCache.length - 1];
+    const lastOrderDateStr = lastOrder?.orderedAt?.toDate ? lastOrder.orderedAt.toDate().toLocaleDateString() : null;
+    const lastOrderISO = lastOrder?.orderedAt?.toDate ? lastOrder.orderedAt.toDate().toISOString().slice(0, 10) : null;
+    const todayStr = new Date().toLocaleDateString();
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const claudeRequestText = `Check ${SPECIALISTS.map(s => s.name).join("'s and ")}'s calendars for completed services between ${lastOrderISO || "the beginning of records"} and ${todayISO}, and give me a bulk-import paste block in the format: Specialist, Service, YYYY-MM-DD`;
+    const periodBanner = `<div style="background:rgba(184,147,90,0.1);border:1px solid var(--gold-light);border-radius:8px;padding:12px 14px;margin-bottom:18px;font-size:12.5px;">
+      <div><span style="opacity:0.7;">Next report would cover:</span> <b>${lastOrderDateStr ? `${lastOrderDateStr} → ${todayStr}` : `beginning of records → ${todayStr}`}</b>
+      <span style="opacity:0.6;"> (Order #${allOrdersCache.length}, the most recent placed)</span></div>
+      <button id="copy-claude-request-btn" class="btn-sm" style="margin-top:8px;background:var(--gold);color:var(--charcoal);border:none;">Collect data from Claude to generate report</button>
+    </div>`;
+
     let recentLogs = [];
     try {
       const logSnap = await getDocs(serviceLogColRef);
@@ -1099,7 +1111,7 @@
       }).join("")}
     </div>`;
 
-    let html = `<div class="note" style="margin-bottom:16px;">Ask Claude to check the calendars and hand you a paste block — drop it in below and it logs everything at once. Use the single form underneath for one-off entries.</div>
+    let html = periodBanner + `<div class="note" style="margin-bottom:16px;">Ask Claude to check the calendars and hand you a paste block — drop it in below and it logs everything at once. Use the single form underneath for one-off entries.</div>
     ${logListHtml}
     <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Bulk import from Claude</div>
@@ -1139,6 +1151,15 @@
     <div id="report-output"></div>`;
 
     reportsEl.innerHTML = html;
+
+    document.getElementById("copy-claude-request-btn").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(claudeRequestText);
+        flashToast("Copied — paste it to Claude");
+      } catch (e) {
+        flashToast("Couldn't copy — select and copy manually");
+      }
+    });
 
     reportsEl.querySelectorAll("[data-delete-log]").forEach(btn => {
       btn.addEventListener("click", async () => {
