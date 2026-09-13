@@ -1076,7 +1076,8 @@
 
     const orderOptions = allOrdersCache.map((o, idx) => {
       const dateStr = o.orderedAt?.toDate ? o.orderedAt.toDate().toLocaleDateString() : "unknown date";
-      return `<option value="${o.id}">Order #${idx + 1} — ${dateStr} — $${(o.total || 0).toFixed(2)}</option>`;
+      const isMostRecent = idx === allOrdersCache.length - 1;
+      return `<option value="${o.id}" ${isMostRecent ? "selected" : ""}>Order #${idx + 1} — ${dateStr} — $${(o.total || 0).toFixed(2)}</option>`;
     }).join("");
 
     const lastOrder = allOrdersCache[allOrdersCache.length - 1];
