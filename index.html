@@ -1108,11 +1108,12 @@
           </div>`
         : `<button class="btn muted" id="recipes-edit-btn">Edit recipes (owner only)</button>`
       }
-    </div>`;
+    </div>
+    <input type="text" id="recipe-search" placeholder="Search for a service…" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;font-size:13px;margin-bottom:14px;" />`;
 
     SERVICES.forEach(service => {
       const saved = recipes[service.id] || {};
-      html += `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+      html += `<div id="recipe-card-${service.id}" data-name="${service.name.toLowerCase()}" style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
         <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">${service.name}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">`;
       RECIPE_FIELDS.forEach(field => {
@@ -1132,6 +1133,15 @@
     });
 
     recipesEl.innerHTML = html;
+
+    document.getElementById("recipe-search").addEventListener("input", (e) => {
+      const term = e.target.value.trim().toLowerCase();
+      SERVICES.forEach(service => {
+        const card = document.getElementById(`recipe-card-${service.id}`);
+        if (!card) return;
+        card.style.display = card.dataset.name.includes(term) ? "" : "none";
+      });
+    });
 
     const editBtn = document.getElementById("recipes-edit-btn");
     if (editBtn) {
