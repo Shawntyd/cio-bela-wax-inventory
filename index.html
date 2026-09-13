@@ -376,7 +376,7 @@
 
   function defaultState() {
     const s = {};
-    ALL_ITEMS.forEach(i => { s[i.id] = { checked: false, qty: 1, link: "", price: 0 }; });
+    ALL_ITEMS.forEach(i => { s[i.id] = { checked: false, qty: 1, link: "", price: 0, shipping: 0 }; });
     return s;
   }
 
@@ -434,6 +434,14 @@
     if (view === "owner") renderOwner();
   }
 
+  function updateShipping(id, shippingStr) {
+    const shipping = Math.max(0, parseFloat(shippingStr) || 0);
+    state = { ...state, [id]: { ...state[id], shipping } };
+    setDoc(stateDocRef, state, { merge: true }).catch(e => console.error(e));
+    renderTeam();
+    if (view === "owner") renderOwner();
+  }
+
   function sealHtml(checked, size = 26) {
     return `<div class="seal ${checked ? 'checked' : ''}" style="width:${size}px;height:${size}px;">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1A1410" stroke-width="3">
@@ -480,9 +488,10 @@
     }
     const subtotal = flagged.reduce((sum, i) => sum + (state[i.id].price || 0) * (state[i.id].qty || 1), 0);
     const tax = subtotal * TAX_RATE;
-    const total = subtotal + tax;
+    const shipping = flagged.reduce((sum, i) => sum + (state[i.id].shipping || 0), 0);
+    const total = subtotal + tax + shipping;
     totalAmount.textContent = "$" + total.toFixed(2);
-    disclaimerEl.textContent = `Includes est. 8.25% tax ($${tax.toFixed(2)} on $${subtotal.toFixed(2)} subtotal) — actual Amazon price may vary at checkout`;
+    disclaimerEl.textContent = `Includes est. 8.25% tax ($${tax.toFixed(2)}) and shipping ($${shipping.toFixed(2)}) — actual prices may vary at checkout`;
     totalBar.classList.remove("hidden");
   }
 
@@ -496,43 +505,49 @@
       return;
     }
 
-    let html = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;background:white;border:1px solid rgba(44,32,22,0.1);border-radius:8px;padding:10px 14px;">
-      <span style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em;color:var(--gold);">Shipping cost for this order</span>
-      <span style="margin-left:auto;display:flex;align-items:center;gap:2px;">
-        <span style="font-size:13px;opacity:0.6;">$</span>
-        <input type="text" inputmode="decimal" id="shipping-cost-input" placeholder="0.00" style="width:60px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:13px;padding:3px 0;" />
-      </span>
-    </div>
-    <div class="actions">
+    let html = `<div class="actions">
       <button class="btn" id="copy-list-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path></svg> Copy order list</button>
       <span id="clear-controls"><button class="btn muted" id="mark-ordered-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6M23 20v-6h-6"></path><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"></path></svg> Mark ordered</button></span>
       <span id="clear-all-controls"><button class="btn muted" id="clear-all-btn" style="border-color:var(--error);color:var(--error);">Clear all</button></span>
     </div>
-    <div class="note">For Amazon items with an ASIN saved, tap "Open" to jump straight to that exact product page and tap Add to Cart there. For anything else, use "Copy order list" and paste it into that site's search. Enter shipping cost above once you know it from checkout — it gets added to the order total when you mark it ordered.</div>`;
+    <div class="note">For Amazon items with an ASIN saved, tap "Open" to jump straight to that exact product page and tap Add to Cart there. For anything else, use "Copy order list" and paste it into that site's search. Since items come from different sites, shipping is entered per item below and totaled automatically.</div>`;
 
     flagged.forEach(item => {
       const link = state[item.id]?.link || "";
       const qty = state[item.id]?.qty || 1;
       const price = state[item.id]?.price || 0;
+      const shipping = state[item.id]?.shipping || 0;
       const trimmedLink = link.trim();
       const isAsin = ASIN_RE.test(trimmedLink);
       const openUrl = isAsin ? `https://www.amazon.com/dp/${encodeURIComponent(trimmedLink)}` : (trimmedLink.startsWith("http") ? trimmedLink : "");
-      html += `<div class="owner-item" data-id="${item.id}">
-        ${sealHtml(true, 20)}
-        <div style="flex:1;min-width:0;">
-          <div class="name">${item.name}</div>
-          <input type="text" placeholder="ASIN or product link (optional)" value="${link.replace(/"/g, '&quot;')}" data-link-id="${item.id}" />
+      html += `<div class="owner-item" data-id="${item.id}" style="flex-direction:column;align-items:stretch;gap:8px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${sealHtml(true, 20)}
+          <div class="name" style="flex:1;">${item.name}</div>
+          ${openUrl ? `<a href="${openUrl}" target="_blank" rel="noreferrer" style="font-size:11px;font-weight:500;color:var(--gold);border:1px solid var(--gold);border-radius:6px;padding:5px 8px;white-space:nowrap;">Open</a>` : ""}
         </div>
-        <div style="display:flex;align-items:center;gap:2px;">
-          <span style="font-size:12px;opacity:0.6;">$</span>
-          <input type="text" inputmode="decimal" placeholder="0.00" value="${price ? price.toFixed(2) : ''}" data-price-id="${item.id}" style="width:52px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:12px;padding:3px 0;" />
+        <input type="text" placeholder="ASIN or product link (optional)" value="${link.replace(/"/g, '&quot;')}" data-link-id="${item.id}" style="width:100%;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:12px;padding:4px 0;" />
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <label style="display:flex;flex-direction:column;gap:2px;font-size:10px;opacity:0.6;">
+            Price
+            <span style="display:flex;align-items:center;gap:2px;">
+              <span style="font-size:12px;opacity:0.6;">$</span>
+              <input type="text" inputmode="decimal" placeholder="0.00" value="${price ? price.toFixed(2) : ''}" data-price-id="${item.id}" style="width:56px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:12px;padding:3px 0;" />
+            </span>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:2px;font-size:10px;opacity:0.6;">
+            Shipping
+            <span style="display:flex;align-items:center;gap:2px;">
+              <span style="font-size:12px;opacity:0.6;">$</span>
+              <input type="text" inputmode="decimal" placeholder="0.00" value="${shipping ? shipping.toFixed(2) : ''}" data-shipping-id="${item.id}" style="width:56px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:12px;padding:3px 0;" />
+            </span>
+          </label>
+          <div class="stepper" style="margin-left:auto;">
+            <button class="step-btn" data-qty-down="${item.id}">−</button>
+            <span class="qty">${qty}</span>
+            <button class="step-btn" data-qty-up="${item.id}">+</button>
+          </div>
         </div>
-        <div class="stepper">
-          <button class="step-btn" data-qty-down="${item.id}">−</button>
-          <span class="qty">${qty}</span>
-          <button class="step-btn" data-qty-up="${item.id}">+</button>
-        </div>
-        ${openUrl ? `<a href="${openUrl}" target="_blank" rel="noreferrer" style="font-size:11px;font-weight:500;color:var(--gold);border:1px solid var(--gold);border-radius:6px;padding:5px 8px;white-space:nowrap;">Open</a>` : ""}
       </div>`;
     });
 
@@ -549,6 +564,9 @@
     });
     ownerViewEl.querySelectorAll("[data-price-id]").forEach(input => {
       input.addEventListener("change", () => updatePrice(input.dataset.priceId, input.value));
+    });
+    ownerViewEl.querySelectorAll("[data-shipping-id]").forEach(input => {
+      input.addEventListener("change", () => updateShipping(input.dataset.shippingId, input.value));
     });
 
     document.getElementById("copy-list-btn").addEventListener("click", async () => {
@@ -572,11 +590,11 @@
           name: i.name,
           qty: state[i.id].qty || 1,
           price: state[i.id].price || 0,
+          shipping: state[i.id].shipping || 0,
         }));
         const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
         const tax = subtotal * TAX_RATE;
-        const shippingInput = document.getElementById("shipping-cost-input");
-        const shipping = Math.max(0, parseFloat(shippingInput?.value) || 0);
+        const shipping = orderItems.reduce((sum, i) => sum + (i.shipping || 0), 0);
         const total = subtotal + tax + shipping;
         try {
           await addDoc(ordersColRef, { items: orderItems, subtotal, tax, shipping, total, orderedAt: serverTimestamp() });
