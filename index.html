@@ -399,7 +399,7 @@
 
   function defaultState() {
     const s = {};
-    ALL_ITEMS.forEach(i => { s[i.id] = { checked: false, qty: 1, link: "", price: 0, shipping: 0 }; });
+    ALL_ITEMS.forEach(i => { s[i.id] = { checked: false, qty: 1, link: "", price: 0, shipping: 0, tax: null }; });
     return s;
   }
 
@@ -484,6 +484,14 @@
     if (view === "owner") renderOwner();
   }
 
+  function updateTax(id, taxStr) {
+    const tax = taxStr.trim() === "" ? null : Math.max(0, parseFloat(taxStr) || 0);
+    state = { ...state, [id]: { ...state[id], tax } };
+    setDoc(stateDocRef, state, { merge: true }).catch(e => console.error(e));
+    renderTeam();
+    if (view === "owner") renderOwner();
+  }
+
   function sealHtml(checked, size = 26) {
     return `<div class="seal ${checked ? 'checked' : ''}" style="width:${size}px;height:${size}px;">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1A1410" stroke-width="3">
@@ -520,6 +528,13 @@
 
   const TAX_RATE = 0.0825;
 
+  function effectiveTax(itemId) {
+    const s = state[itemId];
+    if (!s) return 0;
+    const estimate = (s.price || 0) * (s.qty || 1) * TAX_RATE;
+    return s.tax !== null && s.tax !== undefined ? s.tax : estimate;
+  }
+
   function updateTotalBar(flagged) {
     const totalBar = document.getElementById("total-bar");
     const totalAmount = document.getElementById("total-amount");
@@ -529,11 +544,11 @@
       return;
     }
     const subtotal = flagged.reduce((sum, i) => sum + (state[i.id].price || 0) * (state[i.id].qty || 1), 0);
-    const tax = subtotal * TAX_RATE;
+    const tax = flagged.reduce((sum, i) => sum + effectiveTax(i.id), 0);
     const shipping = flagged.reduce((sum, i) => sum + (state[i.id].shipping || 0), 0);
     const total = subtotal + tax + shipping;
     totalAmount.textContent = "$" + total.toFixed(2);
-    disclaimerEl.textContent = `Includes est. 8.25% tax ($${tax.toFixed(2)}) and shipping ($${shipping.toFixed(2)}) — actual prices may vary at checkout`;
+    disclaimerEl.textContent = `Tax $${tax.toFixed(2)} (real if entered, est. 8.25% otherwise) + shipping $${shipping.toFixed(2)} — edit either in Owner Dashboard to match receipts`;
     totalBar.classList.remove("hidden");
   }
 
@@ -552,7 +567,7 @@
       <span id="clear-controls"><button class="btn muted" id="mark-ordered-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6M23 20v-6h-6"></path><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"></path></svg> Mark ordered</button></span>
       <span id="clear-all-controls"><button class="btn muted" id="clear-all-btn" style="border-color:var(--error);color:var(--error);">Clear all</button></span>
     </div>
-    <div class="note">For Amazon items with an ASIN saved, tap "Open" to jump straight to that exact product page and tap Add to Cart there. For anything else, use "Copy order list" and paste it into that site's search. Since items come from different sites, shipping is entered per item below and totaled automatically.</div>`;
+    <div class="note">For Amazon items with an ASIN saved, tap "Open" to jump straight to that exact product page and tap Add to Cart there. For anything else, use "Copy order list" and paste it into that site's search. Since items come from different sites, shipping and tax are entered per item below (tax defaults to an 8.25% estimate shown as the placeholder — type in the real number from the receipt once you have it, for accurate records).</div>`;
 
     flagged.forEach(item => {
       const link = state[item.id]?.link || "";
@@ -584,6 +599,13 @@
               <input type="text" inputmode="decimal" placeholder="0.00" value="${shipping ? shipping.toFixed(2) : ''}" data-shipping-id="${item.id}" style="width:56px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:12px;padding:3px 0;" />
             </span>
           </label>
+          <label style="display:flex;flex-direction:column;gap:2px;font-size:10px;opacity:0.6;">
+            Tax <span style="opacity:0.6;">(from receipt)</span>
+            <span style="display:flex;align-items:center;gap:2px;">
+              <span style="font-size:12px;opacity:0.6;">$</span>
+              <input type="text" inputmode="decimal" placeholder="${(price * qty * TAX_RATE).toFixed(2)} est." value="${state[item.id].tax !== null && state[item.id].tax !== undefined ? state[item.id].tax.toFixed(2) : ''}" data-tax-id="${item.id}" style="width:64px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-family:'Jost',sans-serif;font-size:12px;padding:3px 0;" />
+            </span>
+          </label>
           <div class="stepper" style="margin-left:auto;">
             <button class="step-btn" data-qty-down="${item.id}">−</button>
             <span class="qty">${qty}</span>
@@ -610,6 +632,9 @@
     ownerViewEl.querySelectorAll("[data-shipping-id]").forEach(input => {
       input.addEventListener("change", () => updateShipping(input.dataset.shippingId, input.value));
     });
+    ownerViewEl.querySelectorAll("[data-tax-id]").forEach(input => {
+      input.addEventListener("change", () => updateTax(input.dataset.taxId, input.value));
+    });
 
     document.getElementById("copy-list-btn").addEventListener("click", async () => {
       const lines = flagged.map(i => `- ${i.name} x${state[i.id].qty || 1}`);
@@ -633,9 +658,10 @@
           qty: state[i.id].qty || 1,
           price: state[i.id].price || 0,
           shipping: state[i.id].shipping || 0,
+          tax: effectiveTax(i.id),
         }));
         const subtotal = orderItems.reduce((sum, i) => sum + i.price * i.qty, 0);
-        const tax = subtotal * TAX_RATE;
+        const tax = orderItems.reduce((sum, i) => sum + i.tax, 0);
         const shipping = orderItems.reduce((sum, i) => sum + (i.shipping || 0), 0);
         const total = subtotal + tax + shipping;
         try {
@@ -697,17 +723,25 @@
         const dateStr = order.orderedAt?.toDate
           ? order.orderedAt.toDate().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
           : "Date unavailable";
-        const lines = (order.items || []).map(i =>
-          `<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;">
+        const lines = (order.items || []).map((i, idx) =>
+          `<div class="order-line-view" data-order="${docSnap.id}" style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;">
             <span>${i.name} × ${i.qty}</span>
             <span style="opacity:0.7;">${i.price ? "$" + (i.price * i.qty).toFixed(2) : ""}</span>
+          </div>`
+        ).join("");
+        const editLines = (order.items || []).map((i, idx) =>
+          `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;flex-wrap:wrap;">
+            <span style="flex:1;min-width:90px;">${i.name} × ${i.qty}</span>
+            <label style="display:flex;align-items:center;gap:2px;opacity:0.7;">P $<input type="text" inputmode="decimal" value="${(i.price || 0).toFixed(2)}" data-edit-price="${idx}" style="width:50px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
+            <label style="display:flex;align-items:center;gap:2px;opacity:0.7;">S $<input type="text" inputmode="decimal" value="${(i.shipping || 0).toFixed(2)}" data-edit-shipping="${idx}" style="width:50px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
+            <label style="display:flex;align-items:center;gap:2px;opacity:0.7;">T $<input type="text" inputmode="decimal" value="${(i.tax || 0).toFixed(2)}" data-edit-tax="${idx}" style="width:50px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
           </div>`
         ).join("");
         const hasBreakdown = order.subtotal !== undefined && order.tax !== undefined;
         const breakdown = hasBreakdown
           ? `<div style="border-top:1px solid rgba(44,32,22,0.08);margin-top:8px;padding-top:8px;font-size:11.5px;opacity:0.65;">
               <div style="display:flex;justify-content:space-between;"><span>Subtotal</span><span>$${order.subtotal.toFixed(2)}</span></div>
-              <div style="display:flex;justify-content:space-between;"><span>Tax (8.25%)</span><span>$${order.tax.toFixed(2)}</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>Tax</span><span>$${order.tax.toFixed(2)}</span></div>
               <div style="display:flex;justify-content:space-between;"><span>Shipping</span><span>${order.shipping !== undefined ? "$" + order.shipping.toFixed(2) : "not tracked"}</span></div>
             </div>`
           : `<div style="font-size:10.5px;opacity:0.5;margin-top:8px;font-style:italic;">Placed before tax tracking was added — total shown is items only, no tax or shipping included.</div>`;
@@ -733,12 +767,16 @@
         html += `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:12px;">
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
             <span style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);">${dateStr}</span>
-            <span style="font-size:14px;font-weight:500;color:var(--gold);">$${(order.total || 0).toFixed(2)}</span>
+            <span style="font-size:14px;font-weight:500;color:var(--gold);" id="order-total-${docSnap.id}">$${(order.total || 0).toFixed(2)}</span>
           </div>
-          ${lines}
-          ${breakdown}
+          <div id="view-lines-${docSnap.id}">${lines}</div>
+          <div id="edit-lines-${docSnap.id}" class="hidden">${editLines}</div>
+          <div id="breakdown-${docSnap.id}">${breakdown}</div>
           ${receiptSection}
-          <div style="margin-top:10px;text-align:right;">
+          <div style="margin-top:10px;display:flex;justify-content:flex-end;gap:12px;">
+            <span id="edit-controls-${docSnap.id}">
+              <button class="btn-sm" data-edit-order="${docSnap.id}" style="background:transparent;color:var(--gold);border:none;font-size:10.5px;opacity:0.75;text-decoration:underline;padding:2px 4px;">Edit to match receipt</button>
+            </span>
             <span id="delete-controls-${docSnap.id}">
               <button class="btn-sm" data-delete-order="${docSnap.id}" style="background:transparent;color:var(--error);border:none;font-size:10.5px;opacity:0.6;text-decoration:underline;padding:2px 4px;">Delete order</button>
             </span>
@@ -746,6 +784,58 @@
         </div>`;
       });
       historyEl.innerHTML = html;
+
+      historyEl.querySelectorAll("[data-edit-order]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const orderId = btn.dataset.editOrder;
+          const controls = document.getElementById(`edit-controls-${orderId}`);
+          controls.innerHTML = `
+            <input type="password" inputmode="numeric" placeholder="Passcode" data-edit-passcode="${orderId}" style="width:70px;font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--gold-light);text-align:center;" />
+            <button class="btn-sm" data-confirm-edit="${orderId}" style="background:var(--gold);color:var(--charcoal);border:none;margin-left:4px;">Unlock</button>`;
+          controls.querySelector(`[data-confirm-edit="${orderId}"]`).addEventListener("click", () => {
+            const codeInput = controls.querySelector(`[data-edit-passcode="${orderId}"]`);
+            if (codeInput.value !== OWNER_PASSCODE) {
+              flashToast("Wrong passcode");
+              return;
+            }
+            document.getElementById(`view-lines-${orderId}`).classList.add("hidden");
+            document.getElementById(`edit-lines-${orderId}`).classList.remove("hidden");
+            controls.innerHTML = `<button class="btn-sm" data-save-edit="${orderId}" style="background:var(--bark);color:var(--cream);border:none;">Save changes</button>
+              <button class="btn-sm" data-cancel-edit="${orderId}" style="background:transparent;color:var(--bark);border:1px solid var(--bark);margin-left:4px;">Cancel</button>`;
+
+            controls.querySelector(`[data-cancel-edit="${orderId}"]`).addEventListener("click", () => renderHistory());
+
+            controls.querySelector(`[data-save-edit="${orderId}"]`).addEventListener("click", async () => {
+              const orderRef = doc(db, "orders", orderId);
+              const editContainer = document.getElementById(`edit-lines-${orderId}`);
+              try {
+                const fresh = await getDoc(orderRef);
+                const items = (fresh.data().items || []).map((item, idx) => {
+                  const priceInput = editContainer.querySelector(`[data-edit-price="${idx}"]`);
+                  const shippingInput = editContainer.querySelector(`[data-edit-shipping="${idx}"]`);
+                  const taxInput = editContainer.querySelector(`[data-edit-tax="${idx}"]`);
+                  return {
+                    ...item,
+                    price: Math.max(0, parseFloat(priceInput?.value) || 0),
+                    shipping: Math.max(0, parseFloat(shippingInput?.value) || 0),
+                    tax: Math.max(0, parseFloat(taxInput?.value) || 0),
+                  };
+                });
+                const subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
+                const tax = items.reduce((sum, i) => sum + i.tax, 0);
+                const shipping = items.reduce((sum, i) => sum + i.shipping, 0);
+                const total = subtotal + tax + shipping;
+                await setDoc(orderRef, { items, subtotal, tax, shipping, total }, { merge: true });
+                flashToast("Order updated to match receipt");
+                renderHistory();
+              } catch (e) {
+                console.error("Couldn't save order edit", e);
+                flashToast("Couldn't save — check connection");
+              }
+            });
+          });
+        });
+      });
 
       historyEl.querySelectorAll("[data-receipt-for]").forEach(input => {
         input.addEventListener("change", async () => {
