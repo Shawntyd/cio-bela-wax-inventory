@@ -1109,14 +1109,48 @@
       ${shownLogs.map(l => {
         const s = SPECIALISTS.find(x => x.id === l.specialistId);
         const svc = SERVICES.find(x => x.id === l.serviceId);
-        return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:5px 0;border-bottom:1px solid rgba(44,32,22,0.06);">
-          <span>${l.date} — ${s ? s.name : l.specialistId} — ${svc ? svc.name : l.serviceId}</span>
-          <button data-delete-log="${l.id}" style="background:transparent;color:var(--error);border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px 6px;">×</button>
+        return `<div id="log-row-${l.id}" style="padding:5px 0;border-bottom:1px solid rgba(44,32,22,0.06);">
+          <div id="log-view-${l.id}" style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
+            <span>${l.date} — ${s ? s.name : l.specialistId} — ${svc ? svc.name : l.serviceId}</span>
+            <span>
+              <button data-edit-log="${l.id}" style="background:transparent;color:var(--gold);border:none;font-size:11px;text-decoration:underline;cursor:pointer;padding:2px 6px;">Edit</button>
+              <button data-delete-log="${l.id}" style="background:transparent;color:var(--error);border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px 6px;">×</button>
+            </span>
+          </div>
+          <div id="log-edit-${l.id}" class="hidden" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+            <select data-edit-log-specialist="${l.id}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;">
+              ${SPECIALISTS.map(sp => `<option value="${sp.id}" ${sp.id === l.specialistId ? "selected" : ""}>${sp.name}</option>`).join("")}
+            </select>
+            <select data-edit-log-service="${l.id}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;">
+              ${SERVICES.map(sv => `<option value="${sv.id}" ${sv.id === l.serviceId ? "selected" : ""}>${sv.name}</option>`).join("")}
+            </select>
+            <input type="date" data-edit-log-date="${l.id}" value="${l.date}" style="padding:4px;border-radius:4px;border:1px solid var(--gold-light);font-size:11px;" />
+            <button data-save-log="${l.id}" style="background:var(--gold);color:var(--charcoal);border:none;border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;">Save</button>
+            <button data-cancel-log="${l.id}" style="background:transparent;color:var(--bark);border:1px solid var(--bark);border-radius:4px;font-size:11px;padding:4px 8px;cursor:pointer;">Cancel</button>
+          </div>
         </div>`;
       }).join("")}
     </div>`;
 
-    let html = periodBanner + `<div class="note" style="margin-bottom:16px;">Ask Claude to check the calendars and hand you a paste block — drop it in below and it logs everything at once. Use the single form underneath for one-off entries.</div>
+    let savedReportsCache = [];
+    try {
+      const savedSnap = await getDocs(query(savedReportsColRef, orderBy("savedAt", "desc"), limit(30)));
+      savedSnap.forEach(d => savedReportsCache.push({ id: d.id, ...d.data() }));
+    } catch (e) { console.error("Couldn't load saved reports", e); }
+
+    const savedReportsListHtml = `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:4px;">Saved (finalized) reports</div>
+      <div style="font-size:11px;opacity:0.55;margin-bottom:10px;">${savedReportsCache.length === 0 ? "None saved yet" : "These are visible to the relevant specialist. Delete one if a mistake got confirmed by accident."}</div>
+      ${savedReportsCache.map(r => {
+        const savedDateStr = r.savedAt?.toDate ? r.savedAt.toDate().toLocaleDateString() : "";
+        return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 0;border-bottom:1px solid rgba(44,32,22,0.06);">
+          <span>${r.specialistName} — Order #${(r.orderIndex || 0) + 1} — $${(r.charge || 0).toFixed(2)} — saved ${savedDateStr}</span>
+          <button data-delete-saved-report="${r.id}" style="background:transparent;color:var(--error);border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px 6px;">×</button>
+        </div>`;
+      }).join("")}
+    </div>`;
+
+    let html = periodBanner + savedReportsListHtml + `<div class="note" style="margin-bottom:16px;">Ask Claude to check the calendars and hand you a paste block — drop it in below and it logs everything at once. Use the single form underneath for one-off entries.</div>
     ${logListHtml}
     <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Bulk import from Claude</div>
@@ -1166,6 +1200,37 @@
       }
     });
 
+    reportsEl.querySelectorAll("[data-edit-log]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.editLog;
+        document.getElementById(`log-view-${id}`).classList.add("hidden");
+        document.getElementById(`log-edit-${id}`).classList.remove("hidden");
+      });
+    });
+    reportsEl.querySelectorAll("[data-cancel-log]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.cancelLog;
+        document.getElementById(`log-edit-${id}`).classList.add("hidden");
+        document.getElementById(`log-view-${id}`).classList.remove("hidden");
+      });
+    });
+    reportsEl.querySelectorAll("[data-save-log]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.saveLog;
+        const specialistId = document.querySelector(`[data-edit-log-specialist="${id}"]`).value;
+        const serviceId = document.querySelector(`[data-edit-log-service="${id}"]`).value;
+        const date = document.querySelector(`[data-edit-log-date="${id}"]`).value;
+        try {
+          await setDoc(doc(db, "service-log", id), { specialistId, serviceId, date }, { merge: false });
+          flashToast("Updated");
+          renderReports();
+        } catch (e) {
+          console.error("Couldn't update log entry", e);
+          flashToast("Couldn't save — check connection");
+        }
+      });
+    });
+
     reportsEl.querySelectorAll("[data-delete-log]").forEach(btn => {
       btn.addEventListener("click", async () => {
         try {
@@ -1174,6 +1239,19 @@
           renderReports();
         } catch (e) {
           console.error("Couldn't delete log entry", e);
+          flashToast("Couldn't delete — check connection");
+        }
+      });
+    });
+
+    reportsEl.querySelectorAll("[data-delete-saved-report]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        try {
+          await deleteDoc(doc(db, "saved-reports", btn.dataset.deleteSavedReport));
+          flashToast("Deleted — no longer visible to her");
+          renderReports();
+        } catch (e) {
+          console.error("Couldn't delete saved report", e);
           flashToast("Couldn't delete — check connection");
         }
       });
@@ -1314,7 +1392,8 @@
     }
 
     const pieDeg = Math.round(pct * 3.6);
-    let html = `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:12px;padding:20px;">
+    let html = `<div style="background:white;border:2px dashed var(--error);border-radius:12px;padding:20px;">
+      <div style="text-align:center;background:var(--error);color:white;border-radius:6px;padding:5px;font-size:10.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:14px;">Draft — not saved or visible to ${specialist.name} yet</div>
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${specialist.name}'s Consumption Report</div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold);margin-top:4px;">Period: ${periodLabel}</div>
@@ -1402,6 +1481,15 @@
         });
         flashToast(`Saved — ${specialist.name} can now see this in her report view`);
         e.target.textContent = "Saved ✓";
+        const draftBadge = e.target.closest('div[style*="dashed"]');
+        if (draftBadge) {
+          draftBadge.style.border = "1px solid var(--gold)";
+          const badgeLabel = draftBadge.querySelector('div[style*="background:var(--error)"]');
+          if (badgeLabel) {
+            badgeLabel.style.background = "var(--gold)";
+            badgeLabel.textContent = `Saved — visible to ${specialist.name} now`;
+          }
+        }
       } catch (err) {
         console.error("Couldn't save report", err);
         flashToast("Couldn't save — check connection");
