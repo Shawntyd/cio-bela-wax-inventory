@@ -463,25 +463,27 @@
       const margin = 32;
       const usableWidth = pageWidth - margin * 2;
       const usableHeight = pageHeight - margin * 2;
-      let firstPage = true;
+      const gap = 14;
 
+      // Capture every section first so we know each one's height before deciding page breaks
+      const sections = [];
       for (const sectionId of sectionIds) {
         const el = document.getElementById(sectionId);
         if (!el) continue;
         const canvas = await html2canvas(el, { backgroundColor: "#F5F0E8", scale: 2, useCORS: true });
-        const imgWidthPt = usableWidth;
-        const imgHeightPt = (canvas.height * imgWidthPt) / canvas.width;
+        const heightPt = (canvas.height * usableWidth) / canvas.width;
+        sections.push({ canvas, heightPt });
+      }
 
-        if (!firstPage) pdf.addPage("letter");
-        firstPage = false;
+      let cursorY = margin;
+      let pageStarted = false;
 
-        if (imgHeightPt <= usableHeight) {
-          // Whole section fits on one page — center it vertically for a cleaner look
-          const y = margin + (usableHeight - imgHeightPt) / 2;
-          pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, y, imgWidthPt, imgHeightPt);
-        } else {
-          // Rare: a single section is itself too tall for one page — split just that section across pages
-          const sliceHeightPx = Math.floor(usableHeight * (canvas.width / imgWidthPt));
+      for (let i = 0; i < sections.length; i++) {
+        const { canvas, heightPt } = sections[i];
+        if (heightPt > usableHeight) {
+          // Oversized single section — give it a fresh page and slice just this one
+          if (pageStarted) pdf.addPage("letter");
+          const sliceHeightPx = Math.floor(usableHeight * (canvas.width / usableWidth));
           let renderedPx = 0;
           let firstSliceOfSection = true;
           while (renderedPx < canvas.height) {
@@ -493,13 +495,28 @@
               canvas, 0, renderedPx, canvas.width, thisSliceHeightPx,
               0, 0, canvas.width, thisSliceHeightPx
             );
-            const sliceHeightPt = (thisSliceHeightPx * imgWidthPt) / canvas.width;
+            const sliceHeightPt = (thisSliceHeightPx * usableWidth) / canvas.width;
             if (!firstSliceOfSection) pdf.addPage("letter");
-            pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", margin, margin, imgWidthPt, sliceHeightPt);
+            pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", margin, margin, usableWidth, sliceHeightPt);
             renderedPx += thisSliceHeightPx;
             firstSliceOfSection = false;
           }
+          cursorY = margin;
+          pageStarted = false; // next section starts fresh below this one
+          if (i < sections.length - 1) pdf.addPage("letter");
+          continue;
         }
+
+        if (pageStarted && (cursorY + heightPt) > (margin + usableHeight)) {
+          // Doesn't fit what's left on this page — start a new one
+          pdf.addPage("letter");
+          cursorY = margin;
+          pageStarted = false;
+        }
+
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, cursorY, usableWidth, heightPt);
+        cursorY += heightPt + gap;
+        pageStarted = true;
       }
 
       if (receiptImages.length > 0) {
@@ -1682,9 +1699,9 @@
         </table>
       </div>
       <div id="pdf-sec-consumption-${specialistId}" style="background:var(--cream);padding:16px;">
-        <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Estimated consumption</div>
+        <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:6px;">Estimated consumption</div>
         ${RECIPE_FIELDS.filter(f => specialistTotals[f.key] > 0).map(f =>
-          `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${f.label}</span><span style="opacity:0.7;">${specialistTotals[f.key].toFixed(1)}</span></div>`
+          `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>${f.label}</span><span style="opacity:0.7;">${specialistTotals[f.key].toFixed(1)}</span></div>`
         ).join("")}
       </div>
       ${(() => {
@@ -1698,8 +1715,8 @@
         </div>`;
       })()}
       <div id="pdf-sec-footer-${specialistId}" style="background:var(--cream);padding:16px;">
-        <div style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">These conclusions were based on the following data</div>
-        <div style="font-size:11px;opacity:0.7;line-height:1.6;">
+        <div style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:6px;">These conclusions were based on the following data</div>
+        <div style="font-size:9.5px;opacity:0.7;line-height:1.45;">
           Billed against: Order #${orderIndex + 1}, placed ${periodEnd.toLocaleDateString()}, total $${orderTotal.toFixed(2)}.<br/>
           Period covered: ${periodLabel}.<br/>
           Recipe values used (live from the Recipes tab at the time this report was generated):
