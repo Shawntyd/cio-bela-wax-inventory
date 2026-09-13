@@ -1078,7 +1078,29 @@
       return `<option value="${o.id}">Order #${idx + 1} — ${dateStr} — $${(o.total || 0).toFixed(2)}</option>`;
     }).join("");
 
+    let recentLogs = [];
+    try {
+      const logSnap = await getDocs(serviceLogColRef);
+      logSnap.forEach(d => recentLogs.push({ id: d.id, ...d.data() }));
+      recentLogs.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    } catch (e) { console.error("Couldn't load service log", e); }
+    const shownLogs = recentLogs.slice(0, 30);
+
+    const logListHtml = `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:4px;">Logged services</div>
+      <div style="font-size:11px;opacity:0.55;margin-bottom:10px;">${recentLogs.length === 0 ? "None yet" : `Showing ${shownLogs.length} most recent of ${recentLogs.length}`}</div>
+      ${shownLogs.map(l => {
+        const s = SPECIALISTS.find(x => x.id === l.specialistId);
+        const svc = SERVICES.find(x => x.id === l.serviceId);
+        return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:5px 0;border-bottom:1px solid rgba(44,32,22,0.06);">
+          <span>${l.date} — ${s ? s.name : l.specialistId} — ${svc ? svc.name : l.serviceId}</span>
+          <button data-delete-log="${l.id}" style="background:transparent;color:var(--error);border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px 6px;">×</button>
+        </div>`;
+      }).join("")}
+    </div>`;
+
     let html = `<div class="note" style="margin-bottom:16px;">Ask Claude to check the calendars and hand you a paste block — drop it in below and it logs everything at once. Use the single form underneath for one-off entries.</div>
+    ${logListHtml}
     <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Bulk import from Claude</div>
       <div style="font-size:11px;opacity:0.6;margin-bottom:8px;">One entry per line: <b>Specialist, Service, YYYY-MM-DD</b></div>
@@ -1117,6 +1139,19 @@
     <div id="report-output"></div>`;
 
     reportsEl.innerHTML = html;
+
+    reportsEl.querySelectorAll("[data-delete-log]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        try {
+          await deleteDoc(doc(db, "service-log", btn.dataset.deleteLog));
+          flashToast("Removed");
+          renderReports();
+        } catch (e) {
+          console.error("Couldn't delete log entry", e);
+          flashToast("Couldn't delete — check connection");
+        }
+      });
+    });
 
     document.getElementById("bulk-import-btn").addEventListener("click", async () => {
       const resultEl = document.getElementById("bulk-import-result");
