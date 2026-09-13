@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light only" />
 <title>Waxing Lounge Inventory — Cio Bela Salons</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,500;1,500;1,600&family=Jost:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   html { color-scheme: light only; }
-  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,500;1,500;1,600&family=Jost:wght@400;500;600&display=swap');
 
   :root {
     --cream: #F5F0E8;
@@ -453,27 +455,63 @@
     const el = document.getElementById(containerId);
     if (!el) { flashToast("Couldn't find report to export"); return; }
     try {
-      const canvas = await html2canvas(el, { backgroundColor: "#F5F0E8", scale: 2 });
-      const imgData = canvas.toDataURL("image/png");
+      if (document.fonts && document.fonts.ready) {
+        await document.fonts.ready;
+      }
+      const canvas = await html2canvas(el, { backgroundColor: "#F5F0E8", scale: 2, useCORS: true });
       const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ unit: "px", format: [canvas.width, canvas.height] });
-      pdf.addImage(imgData, "PNG", 0, 0, canvas.width, canvas.height);
+      const pdf = new jsPDF({ unit: "pt", format: "letter" });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 28;
+      const usableWidth = pageWidth - margin * 2;
+      const usableHeight = pageHeight - margin * 2;
+      const imgWidthPt = usableWidth;
+      const imgHeightPt = (canvas.height * imgWidthPt) / canvas.width;
+
+      if (imgHeightPt <= usableHeight) {
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", margin, margin, imgWidthPt, imgHeightPt);
+      } else {
+        // Slice the tall report into standard Letter-size pages
+        const sliceHeightPx = Math.floor(usableHeight * (canvas.width / imgWidthPt));
+        let renderedPx = 0;
+        let firstSlice = true;
+        while (renderedPx < canvas.height) {
+          const thisSliceHeightPx = Math.min(sliceHeightPx, canvas.height - renderedPx);
+          const sliceCanvas = document.createElement("canvas");
+          sliceCanvas.width = canvas.width;
+          sliceCanvas.height = thisSliceHeightPx;
+          sliceCanvas.getContext("2d").drawImage(
+            canvas, 0, renderedPx, canvas.width, thisSliceHeightPx,
+            0, 0, canvas.width, thisSliceHeightPx
+          );
+          const sliceHeightPt = (thisSliceHeightPx * imgWidthPt) / canvas.width;
+          if (!firstSlice) pdf.addPage("letter");
+          pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", margin, margin, imgWidthPt, sliceHeightPt);
+          renderedPx += thisSliceHeightPx;
+          firstSlice = false;
+        }
+      }
 
       if (receiptImages.length > 0) {
-        // Divider page announcing the full-size receipts that follow
-        pdf.addPage([canvas.width, 200]);
+        pdf.addPage("letter");
         pdf.setFillColor(44, 32, 22);
-        pdf.rect(0, 0, canvas.width, 200, "F");
+        pdf.rect(0, 0, pageWidth, pageHeight, "F");
         pdf.setTextColor(245, 240, 232);
-        pdf.setFontSize(28);
-        pdf.text("Receipts", canvas.width / 2, 115, { align: "center" });
+        pdf.setFont("times", "italic");
+        pdf.setFontSize(30);
+        pdf.text("Receipts", pageWidth / 2, pageHeight / 2, { align: "center" });
 
         for (const src of receiptImages) {
           try {
             const dims = await loadImageDimensions(src);
-            pdf.addPage([dims.width, dims.height]);
+            let w = usableWidth, h = (dims.height * usableWidth) / dims.width;
+            if (h > usableHeight) { h = usableHeight; w = (dims.width * usableHeight) / dims.height; }
+            const x = (pageWidth - w) / 2;
+            const y = (pageHeight - h) / 2;
             const format = src.startsWith("data:image/png") ? "PNG" : "JPEG";
-            pdf.addImage(src, format, 0, 0, dims.width, dims.height);
+            pdf.addPage("letter");
+            pdf.addImage(src, format, x, y, w, h);
           } catch (e) {
             console.error("Couldn't add a receipt page", e);
           }
