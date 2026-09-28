@@ -1257,15 +1257,56 @@ Thank you!`;
     return item ? (ITEM_ID_TO_FIELD[item.id] || null) : null;
   }
 
-  // Splits EVERY item on an order across the specialists, by how much of THAT item each one used.
-  //  - tracked in recipes  -> split by each specialist's usage of that product
-  //  - wax stirs           -> split by days worked (one per shift)
-  //  - anything else       -> split evenly between specialists who worked in the period
-  function computeAllocation(order, countsBySpecialist, daysWorkedBySpecialist) {
-    const workers = SPECIALISTS.filter(sp =>
-      Object.values(countsBySpecialist[sp.id] || {}).reduce((a, b) => a + b, 0) > 0);
-    const totalsBySpecialist = {};
-    SPECIALISTS.forEach(sp => { totalsBySpecialist[sp.id] = consumableTotal(countsBySpecialist[sp.id] || {}); });
+  function orderDateOf(o) { return o && o.orderedAt && o.orderedAt.toDate ? o.orderedAt.toDate() : null; }
+
+  // Splits EVERY item on an order across the specialists, by how much of THAT item each one used
+  // since the last time THAT item was ordered.
+  //  - tracked in recipes  -> split by each specialist's usage of that product in the item's own range
+  //  - wax stirs           -> split by days worked in the range (one per shift)
+  //  - anything else       -> split evenly between specialists who worked in the range
+  // ctx: { allLogs, periodEnd, defaultStart, priorOrders }
+  //   defaultStart = the previous order's date (used the first time an item is ever ordered)
+  function computeAllocation(order, ctx) {
+    const { allLogs, periodEnd, defaultStart, priorOrders } = ctx;
+
+    // Usage stats for a date range, cached so items sharing a start date don't repeat the work
+    const statsCache = new Map();
+    const statsFor = (start) => {
+      const key = start ? start.getTime() : "none";
+      if (statsCache.has(key)) return statsCache.get(key);
+      const counts = {}, dates = {};
+      SPECIALISTS.forEach(sp => { counts[sp.id] = {}; dates[sp.id] = new Set(); });
+      allLogs.forEach(l => {
+        if (!counts[l.specialistId]) return;
+        const d = new Date(l.date);
+        if ((start && d < start) || d > periodEnd) return;
+        counts[l.specialistId][l.serviceId] = (counts[l.specialistId][l.serviceId] || 0) + 1;
+        dates[l.specialistId].add(l.date);
+      });
+      const totals = {}, days = {}, workers = [];
+      SPECIALISTS.forEach(sp => {
+        totals[sp.id] = consumableTotal(counts[sp.id]);
+        days[sp.id] = dates[sp.id].size;
+        if (Object.values(counts[sp.id]).reduce((x, y) => x + y, 0) > 0) workers.push(sp);
+      });
+      const st = { totals, days, workers };
+      statsCache.set(key, st);
+      return st;
+    };
+
+    // Where does this item's range begin? The most recent earlier order that included it.
+    const startFor = (name) => {
+      for (let j = priorOrders.length - 1; j >= 0; j--) {
+        if ((priorOrders[j].items || []).some(i => i.name === name)) {
+          const dt = orderDateOf(priorOrders[j]);
+          if (dt) return { start: dt, note: `last ordered — Order #${j + 1}` };
+        }
+      }
+      return {
+        start: defaultStart,
+        note: defaultStart ? "since the previous order — first time this item has been ordered" : "from the start of records",
+      };
+    };
 
     return (order.items || []).map(item => {
       const cost = (item.price || 0) * (item.qty || 1) + (item.shipping || 0) + (item.tax || 0);
@@ -1274,10 +1315,15 @@ Thank you!`;
       const fieldDef = field ? RECIPE_FIELDS.find(f => f.key === field) : null;
       const fieldLabel = isStirs ? "Days worked" : (fieldDef ? fieldDef.label : "");
 
+      const { start, note } = startFor(item.name);
+      const st = statsFor(start);
+      // If nobody worked in this item's own range, fall back to whoever worked in the standard period
+      const workers = st.workers.length > 0 ? st.workers : statsFor(defaultStart).workers;
+
       const usage = {};
       let totalUsage = 0;
       SPECIALISTS.forEach(sp => {
-        usage[sp.id] = isStirs ? (daysWorkedBySpecialist[sp.id] || 0) : (field ? (totalsBySpecialist[sp.id][field] || 0) : 0);
+        usage[sp.id] = isStirs ? (st.days[sp.id] || 0) : (field ? (st.totals[sp.id][field] || 0) : 0);
         totalUsage += usage[sp.id];
       });
 
@@ -1293,7 +1339,7 @@ Thank you!`;
         basis = "unallocated";
         SPECIALISTS.forEach(sp => { shares[sp.id] = 0; });
       }
-      return { name: item.name, cost, fieldLabel, basis, usage, totalUsage, shares };
+      return { name: item.name, cost, fieldLabel, basis, usage, totalUsage, shares, rangeStart: start, rangeNote: note };
     });
   }
 
@@ -1305,6 +1351,32 @@ Thank you!`;
     if (l.basis === "even-no-usage") return "No usage recorded in the recipes for this period — split evenly";
     if (l.basis === "even") return "Not tracked per service — split evenly";
     return "No services logged this period — not assigned";
+  }
+
+  function allocationRangeText(l) {
+    if (!l.rangeFrom) return "";
+    return `<br/><span style="opacity:0.8;">Counted ${l.rangeFrom} → ${l.rangeTo} (${l.rangeNote})</span>`;
+  }
+
+  function buildEarlierAppointments(list) {
+    if (!list || list.length === 0) return "";
+    return `<div style="margin-top:16px;">
+      <div style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:4px;">Earlier services counted toward longer-lasting items</div>
+      <div style="font-size:10.5px;opacity:0.6;line-height:1.5;margin-bottom:6px;">These fall before this order's standard period, but they count toward items that weren't in the previous order.</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11.5px;">
+        <tr style="opacity:0.55;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">
+          <td style="padding:2px 6px 6px 0;">Date</td><td style="padding:2px 6px 6px 0;">Service</td><td style="padding:2px 0 6px 0;">Client</td>
+        </tr>
+        ${list.map(a => {
+          const sv = SERVICES.find(x => x.id === a.serviceId);
+          return `<tr style="border-top:1px solid rgba(44,32,22,0.06);">
+            <td style="padding:4px 6px 4px 0;white-space:nowrap;">${a.date}</td>
+            <td style="padding:4px 6px 4px 0;">${sv ? sv.name : a.serviceId}</td>
+            <td style="padding:4px 0;opacity:0.75;">${a.clientName || "—"}</td>
+          </tr>`;
+        }).join("")}
+      </table>
+    </div>`;
   }
 
   function buildAllocationTable(lines, total) {
@@ -1319,7 +1391,7 @@ Thank you!`;
       ${lines.map(l => `<tr style="border-top:1px solid rgba(44,32,22,0.06);vertical-align:top;">
         <td style="padding:5px 6px 5px 0;">${l.name}</td>
         <td style="padding:5px 6px 5px 0;text-align:right;white-space:nowrap;">$${l.cost.toFixed(2)}</td>
-        <td style="padding:5px 6px;opacity:0.7;">${allocationBasisText(l)}</td>
+        <td style="padding:5px 6px;opacity:0.7;">${allocationBasisText(l)}${allocationRangeText(l)}</td>
         <td style="padding:5px 0;text-align:right;white-space:nowrap;"><b>$${l.share.toFixed(2)}</b></td>
       </tr>`).join("")}
       <tr style="border-top:1px solid rgba(44,32,22,0.25);">
@@ -2089,12 +2161,11 @@ Thank you!`;
       everyoneWax += (t.hardWax || 0) + (t.softWax || 0);
     });
 
-    // Each item on the order is split by how much of THAT item each specialist used
-    const daysWorkedBySpecialist = {};
-    SPECIALISTS.forEach(sp => {
-      daysWorkedBySpecialist[sp.id] = new Set(inPeriod.filter(l => l.specialistId === sp.id).map(l => l.date)).size;
-    });
-    const allocation = computeAllocation(selectedOrder || {}, bySpecialist, daysWorkedBySpecialist);
+    // Each item is measured from the last time THAT item was ordered
+    const useLegacy = legacyBilling;
+    const priorOrders = allOrdersCache.slice(0, Math.max(orderIndex, 0));
+    const allocation = computeAllocation(selectedOrder || {}, { allLogs, periodEnd, defaultStart: periodStart, priorOrders });
+    const rangeToLabel = periodEnd.toLocaleDateString();
     const allocationLines = allocation.map(l => ({
       name: l.name,
       cost: l.cost,
@@ -2103,8 +2174,10 @@ Thank you!`;
       usage: l.usage[specialistId] || 0,
       totalUsage: l.totalUsage,
       share: l.shares[specialistId] || 0,
+      rangeFrom: l.rangeStart ? l.rangeStart.toLocaleDateString() : "the start of records",
+      rangeTo: rangeToLabel,
+      rangeNote: l.rangeNote,
     }));
-    const useLegacy = legacyBilling;
     const billableTotal = allocation.reduce((sum, l) => sum + l.cost, 0);
     const charge = useLegacy
       ? (everyoneWax > 0 ? (specialistWax / everyoneWax) * orderTotal : 0)
@@ -2112,6 +2185,37 @@ Thank you!`;
     const pct = useLegacy
       ? (everyoneWax > 0 ? Math.round((specialistWax / everyoneWax) * 100) : 0)
       : (orderTotal > 0 ? Math.round((charge / orderTotal) * 100) : 0);
+
+    // Services from before the standard period that still count toward items with a longer history
+    const startTimes = allocation.map(l => l.rangeStart).filter(Boolean).map(dt => dt.getTime());
+    const windowStart = startTimes.length ? new Date(Math.min(...startTimes)) : null;
+    const earlierAppointments = (!useLegacy && windowStart && periodStart)
+      ? allLogs
+          .filter(l => { const dt = new Date(l.date); return l.specialistId === specialistId && dt >= windowStart && dt < periodStart; })
+          .sort((x, y) => (x.date || "").localeCompare(y.date || ""))
+          .map(l => ({ date: l.date, serviceId: l.serviceId, clientName: l.clientName || "" }))
+      : [];
+
+    // Warn (owner only) if a whole stretch of the time being counted has no services for someone who normally has some
+    const gapWarnings = [];
+    if (!useLegacy && windowStart) {
+      const activeIds = new Set(allLogs.map(l => l.specialistId));
+      for (let i = 0; i < orderIndex; i++) {
+        const from = orderDateOf(allOrdersCache[i]);
+        const to = i + 1 === orderIndex ? periodEnd : orderDateOf(allOrdersCache[i + 1]);
+        if (!from || !to || from < windowStart) continue;
+        SPECIALISTS.forEach(sp => {
+          if (!activeIds.has(sp.id)) return;
+          const n = allLogs.filter(l => { if (l.specialistId !== sp.id) return false; const dt = new Date(l.date); return dt >= from && dt <= to; }).length;
+          if (n === 0) gapWarnings.push(`${sp.name}: no services logged between ${from.toLocaleDateString()} and ${to.toLocaleDateString()}`);
+        });
+      }
+    }
+    const gapHtml = gapWarnings.length === 0 ? "" : `<div style="background:#fff8e8;border:1px dashed var(--gold);border-radius:8px;padding:10px 12px;font-size:11.5px;margin-bottom:12px;line-height:1.6;">
+      <b>Check the service log before you send this:</b> part of the time being counted looks empty.<br/>
+      ${gapWarnings.slice(0, 4).map(w => `• ${w}`).join("<br/>")}
+      <div style="opacity:0.65;margin-top:4px;">If she really had no services then, ignore this. Otherwise an import may have been skipped — add those services in step 2, then regenerate.</div>
+    </div>`;
 
     const servicesPerformed = Object.entries(specialistCounts);
     const totalServices = servicesPerformed.reduce((sum, [, c]) => sum + c, 0);
@@ -2152,6 +2256,7 @@ Thank you!`;
         <div style="flex:1;text-align:center;background:var(--error);color:white;border-radius:6px;padding:5px;font-size:10.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;">Draft — not saved or visible to ${specialist.name} yet</div>
         <button id="discard-draft-${specialistId}" style="background:transparent;color:var(--error);border:1px solid var(--error);border-radius:6px;font-size:10.5px;padding:5px 8px;cursor:pointer;white-space:nowrap;">Discard</button>
       </div>
+      ${gapHtml}
       <div id="report-capture-${specialistId}" style="background:var(--cream);padding:4px;">
       <div id="pdf-sec-cover-${specialistId}" style="background:var(--cream);padding:16px;">
         <div style="text-align:center;margin-bottom:16px;">
@@ -2201,8 +2306,9 @@ Thank you!`;
       </div>
       ${useLegacy ? "" : `<div id="pdf-sec-allocation-${specialistId}" style="background:var(--cream);padding:16px;">
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:4px;">How your share was calculated</div>
-        <div style="font-size:10.5px;opacity:0.6;line-height:1.5;margin-bottom:10px;">Each item on the order is split by how much of that item each specialist used, based on the services logged and the recipes. Items that aren't tracked per service are split evenly between the specialists who worked this period.</div>
+        <div style="font-size:10.5px;opacity:0.6;line-height:1.5;margin-bottom:10px;">Each item is measured from the last time that item was ordered. Its cost is split by how much of it each specialist used since then, based on the services logged and the recipes. Items that aren't tracked per service are split evenly between the specialists who worked in that time.</div>
         ${buildAllocationTable(allocationLines, charge)}
+        ${buildEarlierAppointments(earlierAppointments)}
         ${Math.abs(billableTotal - orderTotal) >= 0.01 ? `<div style="font-size:10.5px;opacity:0.6;margin-top:8px;">Note: the line items add up to $${billableTotal.toFixed(2)}; the order total on record is $${orderTotal.toFixed(2)}.</div>` : ""}
       </div>`}
       ${(() => {
@@ -2305,6 +2411,7 @@ Thank you!`;
           everyoneWax,
           specialistWax,
           allocationLines: useLegacy ? [] : allocationLines,
+          earlierAppointments: useLegacy ? [] : earlierAppointments,
           billingMethod: useLegacy ? "wax" : "items",
           receiptCount: orderReceipts.length,
           recipeSnapshot: Object.fromEntries(servicesPerformed.map(([sid]) => [sid, effectiveRecipe(sid)])),
@@ -2442,8 +2549,9 @@ Thank you!`;
           ${(r.allocationLines || []).length > 0 ? `
             <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
               <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:4px;">How your share was calculated</div>
-              <div style="font-size:10.5px;opacity:0.6;line-height:1.5;margin-bottom:10px;">Each item on the order is split by how much of that item each specialist used, based on the services logged and the recipes. Items that aren't tracked per service are split evenly between the specialists who worked this period.</div>
+              <div style="font-size:10.5px;opacity:0.6;line-height:1.5;margin-bottom:10px;">Each item is measured from the last time that item was ordered. Its cost is split by how much of it each specialist used since then, based on the services logged and the recipes. Items that aren't tracked per service are split evenly between the specialists who worked in that time.</div>
               ${buildAllocationTable(r.allocationLines, r.charge || 0)}
+              ${buildEarlierAppointments(r.earlierAppointments)}
             </div>` : ""}
           ${receiptImgs.length > 0 ? `
             <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
