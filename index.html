@@ -1240,6 +1240,95 @@ Thank you!`;
     </div>`;
   }
 
+  // Which recipe field tracks each purchasable item (Wax stirs are handled separately, by days worked)
+  const ITEM_ID_TO_FIELD = {
+    "hard-wax": "hardWax", "soft-wax": "softWax",
+    "wax-strips-small": "stripsSmall", "wax-strips-large": "stripsLarge",
+    "wood-spatulas-small": "spatSmall", "wood-spatulas-medium": "spatMedium", "wood-spatulas-large": "spatLarge",
+    "nitrile-gloves": "gloves", "pre-cleanse": "preCleanse", "pre-wax-oil": "preWaxOil",
+    "baby-powder": "babyPowder", "post-wax-spray": "postWaxSpray", "calming-cream": "calmingCream",
+    "witch-hazel": "witchHazel", "wax-remover": "waxRemover", "cotton-rounds": "cottonRounds",
+    "cotton-balls": "cottonBalls", "bed-paper": "bedPaper", "epa-disinfectant": "disinfectant",
+    "barbicide": "barbicide", "hand-sanitizer": "handSanitizer",
+  };
+
+  function itemFieldForName(name) {
+    const item = ALL_ITEMS.find(i => i.name === name);
+    return item ? (ITEM_ID_TO_FIELD[item.id] || null) : null;
+  }
+
+  // Splits EVERY item on an order across the specialists, by how much of THAT item each one used.
+  //  - tracked in recipes  -> split by each specialist's usage of that product
+  //  - wax stirs           -> split by days worked (one per shift)
+  //  - anything else       -> split evenly between specialists who worked in the period
+  function computeAllocation(order, countsBySpecialist, daysWorkedBySpecialist) {
+    const workers = SPECIALISTS.filter(sp =>
+      Object.values(countsBySpecialist[sp.id] || {}).reduce((a, b) => a + b, 0) > 0);
+    const totalsBySpecialist = {};
+    SPECIALISTS.forEach(sp => { totalsBySpecialist[sp.id] = consumableTotal(countsBySpecialist[sp.id] || {}); });
+
+    return (order.items || []).map(item => {
+      const cost = (item.price || 0) * (item.qty || 1) + (item.shipping || 0) + (item.tax || 0);
+      const isStirs = item.name === "Wax stirs";
+      const field = isStirs ? null : itemFieldForName(item.name);
+      const fieldDef = field ? RECIPE_FIELDS.find(f => f.key === field) : null;
+      const fieldLabel = isStirs ? "Days worked" : (fieldDef ? fieldDef.label : "");
+
+      const usage = {};
+      let totalUsage = 0;
+      SPECIALISTS.forEach(sp => {
+        usage[sp.id] = isStirs ? (daysWorkedBySpecialist[sp.id] || 0) : (field ? (totalsBySpecialist[sp.id][field] || 0) : 0);
+        totalUsage += usage[sp.id];
+      });
+
+      const shares = {};
+      let basis;
+      if ((field || isStirs) && totalUsage > 0) {
+        basis = isStirs ? "shifts" : "usage";
+        SPECIALISTS.forEach(sp => { shares[sp.id] = cost * usage[sp.id] / totalUsage; });
+      } else if (workers.length > 0) {
+        basis = field ? "even-no-usage" : "even";
+        SPECIALISTS.forEach(sp => { shares[sp.id] = workers.some(w => w.id === sp.id) ? cost / workers.length : 0; });
+      } else {
+        basis = "unallocated";
+        SPECIALISTS.forEach(sp => { shares[sp.id] = 0; });
+      }
+      return { name: item.name, cost, fieldLabel, basis, usage, totalUsage, shares };
+    });
+  }
+
+  function fmtNum(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
+
+  function allocationBasisText(l) {
+    if (l.basis === "usage") return `${l.fieldLabel}: you ${fmtNum(l.usage)} of ${fmtNum(l.totalUsage)} (${Math.round((l.usage / l.totalUsage) * 100)}%)`;
+    if (l.basis === "shifts") return `Days worked: you ${fmtNum(l.usage)} of ${fmtNum(l.totalUsage)} (${Math.round((l.usage / l.totalUsage) * 100)}%)`;
+    if (l.basis === "even-no-usage") return "No usage recorded in the recipes for this period — split evenly";
+    if (l.basis === "even") return "Not tracked per service — split evenly";
+    return "No services logged this period — not assigned";
+  }
+
+  function buildAllocationTable(lines, total) {
+    if (!lines || lines.length === 0) return `<div style="font-size:12px;opacity:0.6;">No items on this order.</div>`;
+    return `<table style="width:100%;border-collapse:collapse;font-size:11.5px;">
+      <tr style="opacity:0.55;font-size:10px;text-transform:uppercase;letter-spacing:0.04em;">
+        <td style="padding:2px 6px 6px 0;">Item</td>
+        <td style="padding:2px 6px 6px 0;text-align:right;">Item cost</td>
+        <td style="padding:2px 6px 6px 6px;">How it was split</td>
+        <td style="padding:2px 0 6px 0;text-align:right;">Your share</td>
+      </tr>
+      ${lines.map(l => `<tr style="border-top:1px solid rgba(44,32,22,0.06);vertical-align:top;">
+        <td style="padding:5px 6px 5px 0;">${l.name}</td>
+        <td style="padding:5px 6px 5px 0;text-align:right;white-space:nowrap;">$${l.cost.toFixed(2)}</td>
+        <td style="padding:5px 6px;opacity:0.7;">${allocationBasisText(l)}</td>
+        <td style="padding:5px 0;text-align:right;white-space:nowrap;"><b>$${l.share.toFixed(2)}</b></td>
+      </tr>`).join("")}
+      <tr style="border-top:1px solid rgba(44,32,22,0.25);">
+        <td colspan="3" style="padding:8px 0 0;font-weight:500;">Your total</td>
+        <td style="padding:8px 0 0;text-align:right;"><b>$${total.toFixed(2)}</b></td>
+      </tr>
+    </table>`;
+  }
+
   function effectiveRecipe(serviceId) {
     const service = SERVICES.find(s => s.id === serviceId);
     const saved = recipes[serviceId] || {};
@@ -1934,8 +2023,25 @@ Thank you!`;
       const t = consumableTotal(bySpecialist[s.id] || {});
       everyoneWax += (t.hardWax || 0) + (t.softWax || 0);
     });
-    const pct = everyoneWax > 0 ? Math.round((specialistWax / everyoneWax) * 100) : 0;
-    const charge = everyoneWax > 0 ? (specialistWax / everyoneWax) * orderTotal : 0;
+
+    // Each item on the order is split by how much of THAT item each specialist used
+    const daysWorkedBySpecialist = {};
+    SPECIALISTS.forEach(sp => {
+      daysWorkedBySpecialist[sp.id] = new Set(inPeriod.filter(l => l.specialistId === sp.id).map(l => l.date)).size;
+    });
+    const allocation = computeAllocation(selectedOrder || {}, bySpecialist, daysWorkedBySpecialist);
+    const allocationLines = allocation.map(l => ({
+      name: l.name,
+      cost: l.cost,
+      basis: l.basis,
+      fieldLabel: l.fieldLabel || "",
+      usage: l.usage[specialistId] || 0,
+      totalUsage: l.totalUsage,
+      share: l.shares[specialistId] || 0,
+    }));
+    const billableTotal = allocation.reduce((sum, l) => sum + l.cost, 0);
+    const charge = allocationLines.reduce((sum, l) => sum + l.share, 0);
+    const pct = orderTotal > 0 ? Math.round((charge / orderTotal) * 100) : 0;
 
     const servicesPerformed = Object.entries(specialistCounts);
     const totalServices = servicesPerformed.reduce((sum, [, c]) => sum + c, 0);
@@ -1992,13 +2098,13 @@ Thank you!`;
           <div style="width:150px;height:150px;border-radius:50%;background:conic-gradient(var(--gold) 0deg ${pieDeg}deg, rgba(44,32,22,0.12) ${pieDeg}deg 360deg);display:flex;align-items:center;justify-content:center;">
             <div style="width:100px;height:100px;border-radius:50%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;">
               <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:26px;color:var(--bark);">${pct}%</div>
-              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">of wax used</div>
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">of order cost</div>
             </div>
           </div>
         </div>
       </div>
       <div id="pdf-sec-pie-appointments-${specialistId}" style="background:var(--cream);padding:16px;">
-        <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Consumption by service (${totalServices} total)</div>
+        <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Wax use by service (${totalServices} total)</div>
         ${buildServicePie(servicesPerformed, effectiveRecipe)}
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-top:18px;margin-bottom:8px;">Appointment detail — for your own records</div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
@@ -2023,6 +2129,12 @@ Thank you!`;
           `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>${f.label}</span><span style="opacity:0.7;">${specialistTotals[f.key].toFixed(1)}</span></div>`
         ).join("")}
       </div>
+      <div id="pdf-sec-allocation-${specialistId}" style="background:var(--cream);padding:16px;">
+        <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:4px;">How your share was calculated</div>
+        <div style="font-size:10.5px;opacity:0.6;line-height:1.5;margin-bottom:10px;">Each item on the order is split by how much of that item each specialist used, based on the services logged and the recipes. Items that aren't tracked per service are split evenly between the specialists who worked this period.</div>
+        ${buildAllocationTable(allocationLines, charge)}
+        ${Math.abs(billableTotal - orderTotal) >= 0.01 ? `<div style="font-size:10.5px;opacity:0.6;margin-top:8px;">Note: the line items add up to $${billableTotal.toFixed(2)}; the order total on record is $${orderTotal.toFixed(2)}.</div>` : ""}
+      </div>
       ${(() => {
         const receiptUrls = orderReceipts.map(r => r.imageData);
         if (receiptUrls.length === 0) return "";
@@ -2039,11 +2151,10 @@ Thank you!`;
           <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Billed against</span><span>Order #${orderIndex + 1} — ${periodEnd.toLocaleDateString()}</span></div>
           <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Order total</span><span>$${orderTotal.toFixed(2)}</span></div>
           <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Period covered</span><span>${periodLabel}</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Total wax used (all specialists)</span><span>${everyoneWax.toFixed(1)}g</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">${specialist.name}'s wax used</span><span>${specialistWax.toFixed(1)}g (${pct}%)</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Services performed</span><span>${totalServices}</span></div>
         </div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(44,32,22,0.12);text-align:center;">
-          <div style="font-size:11px;opacity:0.6;">Charge = ${pct}% × $${orderTotal.toFixed(2)}</div>
+          <div style="font-size:11px;opacity:0.6;">Your share of each item, added up (${pct}% of the order)</div>
           <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);margin-top:2px;">$${charge.toFixed(2)}</div>
         </div>
       </div>
@@ -2083,6 +2194,7 @@ Thank you!`;
           `pdf-sec-cover-${specialistId}`,
           `pdf-sec-pie-appointments-${specialistId}`,
           `pdf-sec-consumption-${specialistId}`,
+          `pdf-sec-allocation-${specialistId}`,
           `pdf-sec-billing-${specialistId}`,
           ...servicesPerformed.map((_, idx) => `pdf-sec-recipe-${specialistId}-${idx}`),
         ], `${specialist.name}-consumption-report`, orderReceipts.map(r => r.imageData));
@@ -2119,6 +2231,7 @@ Thank you!`;
           specialistTotals,
           everyoneWax,
           specialistWax,
+          allocationLines,
           receiptCount: orderReceipts.length,
           recipeSnapshot: Object.fromEntries(servicesPerformed.map(([sid]) => [sid, effectiveRecipe(sid)])),
         }));
@@ -2211,12 +2324,12 @@ Thank you!`;
             <div style="width:130px;height:130px;border-radius:50%;background:conic-gradient(var(--gold) 0deg ${pieDeg}deg, rgba(44,32,22,0.12) ${pieDeg}deg 360deg);display:flex;align-items:center;justify-content:center;">
               <div style="width:88px;height:88px;border-radius:50%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;">
                 <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${r.pct}%</div>
-                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">of wax used</div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">of order cost</div>
               </div>
             </div>
           </div>
           <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;">
-            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Consumption by service (${savedServicePairs(r).reduce((s, [, c]) => s + c, 0)} total)</div>
+            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Wax use by service (${savedServicePairs(r).reduce((s, [, c]) => s + c, 0)} total)</div>
             ${buildServicePie(savedServicePairs(r), (sid) => (r.recipeSnapshot || {})[sid])}
           </div>
           <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
@@ -2243,6 +2356,12 @@ Thank you!`;
               `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${f.label}</span><span style="opacity:0.7;">${r.specialistTotals[f.key].toFixed(1)}</span></div>`
             ).join("")}
           </div>
+          ${(r.allocationLines || []).length > 0 ? `
+            <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+              <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:4px;">How your share was calculated</div>
+              <div style="font-size:10.5px;opacity:0.6;line-height:1.5;margin-bottom:10px;">Each item on the order is split by how much of that item each specialist used, based on the services logged and the recipes. Items that aren't tracked per service are split evenly between the specialists who worked this period.</div>
+              ${buildAllocationTable(r.allocationLines, r.charge || 0)}
+            </div>` : ""}
           ${receiptImgs.length > 0 ? `
             <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
               <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Receipts</div>
