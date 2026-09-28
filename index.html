@@ -1346,6 +1346,12 @@
       });
     } catch (e) { console.error("Couldn't load open drafts", e); }
 
+    let claudeChatLink = "";
+    try {
+      const settingsSnap = await getDoc(doc(db, "inventory", "settings"));
+      if (settingsSnap.exists()) claudeChatLink = settingsSnap.data().claudeChatLink || "";
+    } catch (e) { console.error("Couldn't load Claude chat link", e); }
+
     try {
       const q = query(ordersColRef, orderBy("orderedAt", "asc"));
       const snap = await getDocs(q);
@@ -1376,7 +1382,19 @@
         ? `<span style="opacity:0.7;">Report for Order #${allOrdersCache.length} (placed ${lastOrderDateStr}) would cover:</span> <b>${periodStartDateStr ? `${periodStartDateStr} → ${lastOrderDateStr}` : `beginning of records → ${lastOrderDateStr}`}</b>`
         : `<span style="opacity:0.7;">No orders placed yet — nothing to report on.</span>`
       }</div>
-      <button id="copy-claude-request-btn" class="btn-sm" style="margin-top:8px;background:var(--gold);color:var(--charcoal);border:none;" ${lastOrder ? "" : "disabled"}>Collect data from Claude to generate report</button>
+      <button id="copy-claude-request-btn" class="btn-sm" style="margin-top:8px;background:var(--gold);color:var(--charcoal);border:none;" ${lastOrder ? "" : "disabled"}>1. Copy request for Claude</button>
+      ${claudeChatLink
+        ? `<a href="${claudeChatLink}" target="_blank" rel="noopener" class="btn-sm" style="display:inline-block;margin-top:8px;margin-left:6px;background:var(--bark);color:var(--cream);text-decoration:none;">2. Open Claude chat ↗</a>
+           <button id="edit-claude-link-btn" style="background:transparent;border:none;color:var(--gold);font-size:11px;text-decoration:underline;cursor:pointer;margin-left:6px;">change link</button>`
+        : `<button id="edit-claude-link-btn" class="btn-sm" style="margin-top:8px;margin-left:6px;background:transparent;color:var(--bark);border:1px dashed var(--gold);">2. Add link to your Claude chat</button>`
+      }
+      <div id="claude-link-editor" class="hidden" style="margin-top:10px;">
+        <input type="text" id="claude-link-input" value="${claudeChatLink}" placeholder="Paste the chat link (https://claude.ai/chat/…)" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;font-size:12px;" />
+        <div style="margin-top:6px;display:flex;gap:6px;">
+          <button id="save-claude-link-btn" class="btn-sm" style="background:var(--gold);color:var(--charcoal);border:none;">Save link</button>
+          <button id="cancel-claude-link-btn" class="btn-sm" style="background:transparent;color:var(--bark);border:1px solid var(--bark);">Cancel</button>
+        </div>
+      </div>
     </div>`;
 
     let recentLogs = [];
@@ -1468,9 +1486,41 @@
     document.getElementById("copy-claude-request-btn").addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(claudeRequestText);
-        flashToast("Copied — paste it to Claude");
+        flashToast(claudeChatLink ? "Copied — now tap “Open Claude chat” and paste" : "Copied — paste it to Claude");
       } catch (e) {
         flashToast("Couldn't copy — select and copy manually");
+      }
+    });
+
+    const claudeLinkEditor = document.getElementById("claude-link-editor");
+    const editClaudeLinkBtn = document.getElementById("edit-claude-link-btn");
+    if (editClaudeLinkBtn) {
+      editClaudeLinkBtn.addEventListener("click", () => {
+        claudeLinkEditor.classList.remove("hidden");
+        document.getElementById("claude-link-input").focus();
+      });
+    }
+    document.getElementById("cancel-claude-link-btn").addEventListener("click", () => {
+      claudeLinkEditor.classList.add("hidden");
+    });
+    document.getElementById("save-claude-link-btn").addEventListener("click", async () => {
+      const raw = document.getElementById("claude-link-input").value.trim();
+      let clean = "";
+      try {
+        const u = new URL(raw);
+        if (u.protocol === "https:" && u.hostname === "claude.ai") clean = u.href;
+      } catch (e) { /* not a valid URL */ }
+      if (!clean) {
+        flashToast("That needs to be a claude.ai link");
+        return;
+      }
+      try {
+        await setDoc(doc(db, "inventory", "settings"), { claudeChatLink: clean }, { merge: true });
+        flashToast("Link saved");
+        renderReports();
+      } catch (e) {
+        console.error("Couldn't save Claude chat link", e);
+        flashToast("Couldn't save — check connection");
       }
     });
 
