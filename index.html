@@ -1356,6 +1356,7 @@ Thank you!`;
 
   let allOrdersCache = [];
   let reportsStep = 1;
+  let legacyBilling = false;   // only for re-creating reports already sent under the old wax-percentage method
   let wizardOrderId = null;
   let activeDraftKeys = new Set();
 
@@ -1565,7 +1566,7 @@ Thank you!`;
       ${savedReportsCache.map(r => {
         const savedDateStr = r.savedAt?.toDate ? r.savedAt.toDate().toLocaleDateString() : "";
         return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 0;border-bottom:1px solid rgba(44,32,22,0.06);">
-          <span>${r.specialistName} — Order #${(r.orderIndex || 0) + 1} — $${(r.charge || 0).toFixed(2)} — saved ${savedDateStr}</span>
+          <span>${r.specialistName} — Order #${(r.orderIndex || 0) + 1} — $${(r.charge || 0).toFixed(2)} — saved ${savedDateStr}${(r.allocationLines || []).length ? "" : " · old method"}</span>
           <button data-delete-saved-report="${r.id}" style="background:transparent;color:var(--error);border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px 6px;">×</button>
         </div>`;
       }).join("")}
@@ -1738,7 +1739,13 @@ Thank you!`;
     else if (reportsStep === 2) stepBody = bulkImportHtml + singleLogHtml + logListHtml;
     else if (reportsStep === 3) stepBody = receiptsStepHtml;
     else if (reportsStep === 4) stepBody = editStepHtml;
-    else stepBody = generateHtml + `<div id="report-output"></div>`;
+    else stepBody = generateHtml + `<div style="margin:-6px 0 18px;padding:10px 12px;border:1px dashed rgba(44,32,22,0.25);border-radius:8px;font-size:11.5px;">
+      <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">
+        <input type="checkbox" id="legacy-billing-toggle" ${legacyBilling ? "checked" : ""} style="margin-top:2px;flex-shrink:0;" />
+        <span><b>Match a report I already sent (old wax-percentage method)</b><br/><span style="opacity:0.6;">Only for re-creating reports that already went out the old way. Leave this off for normal billing.</span></span>
+      </label>
+      ${legacyBilling ? `<div style="background:#fdf1ee;border:1px solid var(--error);border-radius:6px;padding:8px 10px;margin-top:8px;color:var(--error);">Old method is ON: each specialist is charged her share of the <b>wax</b> used × the <b>whole order total</b>. Turn it off for normal billing.</div>` : ""}
+    </div><div id="report-output"></div>`;
 
     let html = wizardHeader + stepBody + wizardNav;
 
@@ -1900,9 +1907,10 @@ Thank you!`;
     reportsEl.querySelectorAll("[data-reports-back]").forEach(b => b.addEventListener("click", () => goToStep(reportsStep - 1)));
 
     const wizOrderSelect = document.getElementById("wizard-order-select");
-    if (wizOrderSelect) wizOrderSelect.addEventListener("change", () => { wizardOrderId = wizOrderSelect.value; renderReports(); });
+    if (wizOrderSelect) wizOrderSelect.addEventListener("change", () => { wizardOrderId = wizOrderSelect.value; legacyBilling = false; renderReports(); });
     const reportOrderSelect = document.getElementById("report-order");
-    if (reportOrderSelect) reportOrderSelect.addEventListener("change", () => { wizardOrderId = reportOrderSelect.value; });
+    if (reportOrderSelect) reportOrderSelect.addEventListener("change", () => { wizardOrderId = reportOrderSelect.value; legacyBilling = false; renderReports(); });
+    on("legacy-billing-toggle", "change", (e) => { legacyBilling = e.target.checked; renderReports(); });
 
     // ---- Unsaved-report alert (step 1) ----
     reportsEl.querySelectorAll("[data-review-draft]").forEach(btn => {
@@ -2096,9 +2104,14 @@ Thank you!`;
       totalUsage: l.totalUsage,
       share: l.shares[specialistId] || 0,
     }));
+    const useLegacy = legacyBilling;
     const billableTotal = allocation.reduce((sum, l) => sum + l.cost, 0);
-    const charge = allocationLines.reduce((sum, l) => sum + l.share, 0);
-    const pct = orderTotal > 0 ? Math.round((charge / orderTotal) * 100) : 0;
+    const charge = useLegacy
+      ? (everyoneWax > 0 ? (specialistWax / everyoneWax) * orderTotal : 0)
+      : allocationLines.reduce((sum, l) => sum + l.share, 0);
+    const pct = useLegacy
+      ? (everyoneWax > 0 ? Math.round((specialistWax / everyoneWax) * 100) : 0)
+      : (orderTotal > 0 ? Math.round((charge / orderTotal) * 100) : 0);
 
     const servicesPerformed = Object.entries(specialistCounts);
     const totalServices = servicesPerformed.reduce((sum, [, c]) => sum + c, 0);
@@ -2155,13 +2168,13 @@ Thank you!`;
           <div style="width:150px;height:150px;border-radius:50%;background:conic-gradient(var(--gold) 0deg ${pieDeg}deg, rgba(44,32,22,0.12) ${pieDeg}deg 360deg);display:flex;align-items:center;justify-content:center;">
             <div style="width:100px;height:100px;border-radius:50%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;">
               <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:26px;color:var(--bark);">${pct}%</div>
-              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">of order cost</div>
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">${useLegacy ? "of wax used" : "of order cost"}</div>
             </div>
           </div>
         </div>
       </div>
       <div id="pdf-sec-pie-appointments-${specialistId}" style="background:var(--cream);padding:16px;">
-        <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Wax use by service (${totalServices} total)</div>
+        <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">${useLegacy ? "Consumption by service" : "Wax use by service"} (${totalServices} total)</div>
         ${buildServicePie(servicesPerformed, effectiveRecipe)}
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-top:18px;margin-bottom:8px;">Appointment detail — for your own records</div>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
@@ -2186,12 +2199,12 @@ Thank you!`;
           `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>${f.label}</span><span style="opacity:0.7;">${specialistTotals[f.key].toFixed(1)}</span></div>`
         ).join("")}
       </div>
-      <div id="pdf-sec-allocation-${specialistId}" style="background:var(--cream);padding:16px;">
+      ${useLegacy ? "" : `<div id="pdf-sec-allocation-${specialistId}" style="background:var(--cream);padding:16px;">
         <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:4px;">How your share was calculated</div>
         <div style="font-size:10.5px;opacity:0.6;line-height:1.5;margin-bottom:10px;">Each item on the order is split by how much of that item each specialist used, based on the services logged and the recipes. Items that aren't tracked per service are split evenly between the specialists who worked this period.</div>
         ${buildAllocationTable(allocationLines, charge)}
         ${Math.abs(billableTotal - orderTotal) >= 0.01 ? `<div style="font-size:10.5px;opacity:0.6;margin-top:8px;">Note: the line items add up to $${billableTotal.toFixed(2)}; the order total on record is $${orderTotal.toFixed(2)}.</div>` : ""}
-      </div>
+      </div>`}
       ${(() => {
         const receiptUrls = orderReceipts.map(r => r.imageData);
         if (receiptUrls.length === 0) return "";
@@ -2208,10 +2221,13 @@ Thank you!`;
           <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Billed against</span><span>Order #${orderIndex + 1} — ${periodEnd.toLocaleDateString()}</span></div>
           <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Order total</span><span>$${orderTotal.toFixed(2)}</span></div>
           <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Period covered</span><span>${periodLabel}</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Services performed</span><span>${totalServices}</span></div>
+          ${useLegacy
+            ? `<div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Total wax used (all specialists)</span><span>${everyoneWax.toFixed(1)}g</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">${specialist.name}'s wax used</span><span>${specialistWax.toFixed(1)}g (${pct}%)</span></div>`
+            : `<div style="display:flex;justify-content:space-between;"><span style="opacity:0.6;">Services performed</span><span>${totalServices}</span></div>`}
         </div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(44,32,22,0.12);text-align:center;">
-          <div style="font-size:11px;opacity:0.6;">Your share of each item, added up (${pct}% of the order)</div>
+          <div style="font-size:11px;opacity:0.6;">${useLegacy ? `Charge = ${specialistWax.toFixed(1)}g ÷ ${everyoneWax.toFixed(1)}g × $${orderTotal.toFixed(2)}` : `Your share of each item, added up (${pct}% of the order)`}</div>
           <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);margin-top:2px;">$${charge.toFixed(2)}</div>
         </div>
       </div>
@@ -2288,7 +2304,8 @@ Thank you!`;
           specialistTotals,
           everyoneWax,
           specialistWax,
-          allocationLines,
+          allocationLines: useLegacy ? [] : allocationLines,
+          billingMethod: useLegacy ? "wax" : "items",
           receiptCount: orderReceipts.length,
           recipeSnapshot: Object.fromEntries(servicesPerformed.map(([sid]) => [sid, effectiveRecipe(sid)])),
         }));
@@ -2381,12 +2398,12 @@ Thank you!`;
             <div style="width:130px;height:130px;border-radius:50%;background:conic-gradient(var(--gold) 0deg ${pieDeg}deg, rgba(44,32,22,0.12) ${pieDeg}deg 360deg);display:flex;align-items:center;justify-content:center;">
               <div style="width:88px;height:88px;border-radius:50%;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;">
                 <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);">${r.pct}%</div>
-                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">of order cost</div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">${(r.allocationLines || []).length ? "of order cost" : "of wax used"}</div>
               </div>
             </div>
           </div>
           <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;">
-            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Wax use by service (${savedServicePairs(r).reduce((s, [, c]) => s + c, 0)} total)</div>
+            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">${(r.allocationLines || []).length ? "Wax use by service" : "Consumption by service"} (${savedServicePairs(r).reduce((s, [, c]) => s + c, 0)} total)</div>
             ${buildServicePie(savedServicePairs(r), (sid) => (r.recipeSnapshot || {})[sid])}
           </div>
           <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
@@ -2413,6 +2430,15 @@ Thank you!`;
               `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${f.label}</span><span style="opacity:0.7;">${r.specialistTotals[f.key].toFixed(1)}</span></div>`
             ).join("")}
           </div>
+          ${!(r.allocationLines || []).length && r.everyoneWax > 0 ? `
+            <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
+              <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:6px;">How your share was calculated</div>
+              <div style="font-size:12px;line-height:1.9;">
+                Total wax used across all specialists: ${(r.everyoneWax || 0).toFixed(1)}g<br/>
+                Your wax: ${(r.specialistWax || 0).toFixed(1)}g (${r.pct}%)<br/>
+                Charge = ${(r.specialistWax || 0).toFixed(1)}g ÷ ${(r.everyoneWax || 0).toFixed(1)}g × $${(r.orderTotal || 0).toFixed(2)} = <b>$${(r.charge || 0).toFixed(2)}</b>
+              </div>
+            </div>` : ""}
           ${(r.allocationLines || []).length > 0 ? `
             <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
               <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:4px;">How your share was calculated</div>
@@ -2482,6 +2508,7 @@ Thank you!`;
       if (unlocked || SKIP_PASSCODE) {
         ownerLockEl.classList.add("hidden");
         reportsStep = 1;
+        legacyBilling = false;
         renderReports();
       } else {
         ownerLockEl.classList.remove("hidden");
@@ -2546,6 +2573,7 @@ Thank you!`;
       } else if (view === "reports") {
         document.getElementById("reports-view").classList.remove("hidden");
         reportsStep = 1;
+        legacyBilling = false;
         renderReports();
       } else {
         ownerViewEl.classList.remove("hidden");
