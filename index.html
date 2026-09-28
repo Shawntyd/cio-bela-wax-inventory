@@ -1743,7 +1743,7 @@
     let trendHtml = "";
     if (previousReport) {
       const prevCount = (previousReport.specialistAppointments || []).length
-        || (previousReport.servicesPerformed || []).reduce((s, [, c]) => s + c, 0);
+        || savedServicePairs(previousReport).reduce((s, [, c]) => s + c, 0);
       const diff = totalServices - prevCount;
       const pctChange = prevCount > 0 ? Math.round((diff / prevCount) * 100) : null;
       const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "—";
@@ -1885,7 +1885,10 @@
       e.target.disabled = true;
       e.target.textContent = "Saving…";
       try {
-        await addDoc(savedReportsColRef, {
+        // Firestore rejects nested arrays and undefined values, so store services as maps
+        // and strip anything undefined. Receipts stay in their own collection (linked by orderId)
+        // so this record stays well under the 1 MB document limit.
+        const cleanData = JSON.parse(JSON.stringify({
           specialistId,
           specialistName: specialist.name,
           orderIndex,
@@ -1894,15 +1897,15 @@
           periodLabel,
           pct,
           charge,
-          servicesPerformed,
+          servicesPerformedList: servicesPerformed.map(([serviceId, count]) => ({ serviceId, count })),
           specialistAppointments,
           specialistTotals,
           everyoneWax,
           specialistWax,
-          receiptUrls: orderReceipts.map(r => r.imageData),
+          receiptCount: orderReceipts.length,
           recipeSnapshot: Object.fromEntries(servicesPerformed.map(([sid]) => [sid, effectiveRecipe(sid)])),
-          savedAt: serverTimestamp(),
-        });
+        }));
+        await addDoc(savedReportsColRef, { ...cleanData, savedAt: serverTimestamp() });
         flashToast(`Saved — ${specialist.name} can now see this in her report view`);
         e.target.textContent = "Saved ✓";
         activeDraftKeys.delete(draftKey);
@@ -1918,7 +1921,7 @@
         }
       } catch (err) {
         console.error("Couldn't save report", err);
-        flashToast("Couldn't save — check connection");
+        flashToast(`Couldn't save: ${String(err.code || err.message || "unknown error").slice(0, 90)}`);
         e.target.disabled = false;
         e.target.textContent = "Save & finalize this report";
       }
@@ -1926,6 +1929,11 @@
   }
 
   let myUnlockedSpecialistId = null;
+
+  function savedServicePairs(r) {
+    if (Array.isArray(r.servicesPerformedList)) return r.servicesPerformedList.map(x => [x.serviceId, x.count]);
+    return r.servicesPerformed || [];
+  }
 
   async function renderMyReports() {
     const el = document.getElementById("myreport-view");
@@ -1941,14 +1949,25 @@
         </div>`;
         return;
       }
+      const receiptsByOrderId = {};
+      try {
+        const receiptSnap = await getDocs(receiptsColRef);
+        receiptSnap.forEach(d => {
+          const x = d.data();
+          if (!receiptsByOrderId[x.orderId]) receiptsByOrderId[x.orderId] = [];
+          receiptsByOrderId[x.orderId].push(x.imageData);
+        });
+      } catch (e) { console.error("Couldn't load receipts", e); }
+
       let html = `<div class="status-line">Showing reports for ${specialist ? specialist.name : ""} only.</div>`;
       snap.docs.forEach((docSnap, idx) => {
         const r = docSnap.data();
+        const receiptImgs = receiptsByOrderId[r.orderId] || r.receiptUrls || [];
         const previous = idx + 1 < snap.docs.length ? snap.docs[idx + 1].data() : null;
         let trendHtml = "";
         if (previous) {
-          const curCount = (r.specialistAppointments || []).length || (r.servicesPerformed || []).reduce((s, [, c]) => s + c, 0);
-          const prevCount = (previous.specialistAppointments || []).length || (previous.servicesPerformed || []).reduce((s, [, c]) => s + c, 0);
+          const curCount = (r.specialistAppointments || []).length || savedServicePairs(r).reduce((s, [, c]) => s + c, 0);
+          const prevCount = (previous.specialistAppointments || []).length || savedServicePairs(previous).reduce((s, [, c]) => s + c, 0);
           const diff = curCount - prevCount;
           const pctChange = prevCount > 0 ? Math.round((diff / prevCount) * 100) : null;
           const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "—";
@@ -1979,8 +1998,8 @@
             </div>
           </div>
           <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;">
-            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Consumption by service (${(r.servicesPerformed || []).reduce((s, [, c]) => s + c, 0)} total)</div>
-            ${buildServicePie(r.servicesPerformed || [], (sid) => (r.recipeSnapshot || {})[sid])}
+            <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:10px;">Consumption by service (${savedServicePairs(r).reduce((s, [, c]) => s + c, 0)} total)</div>
+            ${buildServicePie(savedServicePairs(r), (sid) => (r.recipeSnapshot || {})[sid])}
           </div>
           <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
             <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Appointment detail — for your own records</div>
@@ -2006,18 +2025,18 @@
               `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${f.label}</span><span style="opacity:0.7;">${r.specialistTotals[f.key].toFixed(1)}</span></div>`
             ).join("")}
           </div>
-          ${(r.receiptUrls || []).length > 0 ? `
+          ${receiptImgs.length > 0 ? `
             <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
               <div style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">Receipts</div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                ${r.receiptUrls.map(url => `<img src="${url}" class="receipt-thumb" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--gold-light);display:block;cursor:pointer;" />`).join("")}
+                ${receiptImgs.map(url => `<img src="${url}" class="receipt-thumb" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--gold-light);display:block;cursor:pointer;" />`).join("")}
               </div>
             </div>` : ""}
           <div style="border-top:1px solid rgba(44,32,22,0.1);padding-top:14px;margin-top:14px;">
             <div style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold);margin-bottom:8px;">These conclusions were based on the following data</div>
             <div style="font-size:11px;opacity:0.7;line-height:1.6;">
               Recipe values in effect when this report was saved:
-              ${(r.servicesPerformed || []).map(([sid]) => {
+              ${savedServicePairs(r).map(([sid]) => {
                 const s = SERVICES.find(x => x.id === sid);
                 const rec = (r.recipeSnapshot || {})[sid] || {};
                 const parts = RECIPE_FIELDS.filter(f => rec[f.key]).map(f => `${f.label.toLowerCase()}: ${rec[f.key]}`).join(", ");
