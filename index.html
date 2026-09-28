@@ -438,6 +438,18 @@
     setTimeout(() => { toastEl.style.display = "none"; }, 2200);
   }
 
+  const REPORT_SHARE_MESSAGE = `Attached below is your report. This is a detailed breakdown of what services you provided and the amount of each product you used to provide those services as well as the total amount you will be billed individually to replenish the inventory we just ordered.
+
+Please review this report and confirm that the information is correct.
+
+CONFIRMATION IS DUE TODAY.
+
+If it is left unconfirmed by tomorrow morning, the report will be assumed as correct and you will be billed accordingly.
+
+Always feel free to reach out with any inquiries or suggestions.
+
+Thank you!`;
+
   function loadImageDimensions(src) {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -448,6 +460,7 @@
   }
 
   async function downloadReportPDF(sectionIds, filenameBase, receiptImages = []) {
+    try { navigator.clipboard.writeText(REPORT_SHARE_MESSAGE).catch(() => {}); } catch (e) { /* clipboard unavailable */ }
     if (typeof html2canvas === "undefined" || typeof window.jspdf === "undefined") {
       flashToast("Still loading — try again in a second");
       return;
@@ -549,7 +562,8 @@
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
-          await navigator.share({ files: [file], title: filenameBase });
+          await navigator.share({ files: [file], title: filenameBase, text: REPORT_SHARE_MESSAGE });
+          flashToast("Message is also copied — paste it if it didn't attach");
           return;
         } catch (e) {
           // user cancelled the native share sheet — fall through to download below
@@ -557,7 +571,7 @@
         }
       }
       pdf.save(`${filenameBase}.pdf`);
-      flashToast("PDF downloaded — attach it to a message");
+      flashToast("PDF downloaded — message is copied, paste it when you send");
     } catch (e) {
       console.error("Couldn't create PDF", e);
       flashToast("Couldn't create PDF");
