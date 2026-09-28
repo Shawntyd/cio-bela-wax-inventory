@@ -1350,6 +1350,11 @@
     try {
       const settingsSnap = await getDoc(doc(db, "inventory", "settings"));
       if (settingsSnap.exists()) claudeChatLink = settingsSnap.data().claudeChatLink || "";
+      if (claudeChatLink) {
+        try {
+          if (!/^\/chat\//.test(new URL(claudeChatLink).pathname)) claudeChatLink = "";
+        } catch (e) { claudeChatLink = ""; }
+      }
     } catch (e) { console.error("Couldn't load Claude chat link", e); }
 
     try {
@@ -1506,12 +1511,18 @@
     document.getElementById("save-claude-link-btn").addEventListener("click", async () => {
       const raw = document.getElementById("claude-link-input").value.trim();
       let clean = "";
+      let isShareLink = false;
       try {
         const u = new URL(raw);
-        if (u.protocol === "https:" && u.hostname === "claude.ai") clean = u.href;
+        if (u.protocol === "https:" && u.hostname === "claude.ai") {
+          if (/^\/chat\/[0-9a-f-]{20,}/i.test(u.pathname)) clean = u.href;
+          else if (u.pathname.startsWith("/share/")) isShareLink = true;
+        }
       } catch (e) { /* not a valid URL */ }
       if (!clean) {
-        flashToast("That needs to be a claude.ai link");
+        flashToast(isShareLink
+          ? "That's a read-only share link — use the address-bar link that looks like claude.ai/chat/…"
+          : "That needs to be a claude.ai/chat/… link");
         return;
       }
       try {
