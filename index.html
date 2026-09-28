@@ -1461,7 +1461,6 @@ Thank you!`;
     </div>`;
 
     let html = periodBanner + savedReportsListHtml + `<div class="note" style="margin-bottom:16px;">Ask Claude to check the calendars and hand you a paste block — drop it in below and it logs everything at once. Use the single form underneath for one-off entries.</div>
-    ${logListHtml}
     <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Bulk import from Claude</div>
       <div style="font-size:11px;opacity:0.6;margin-bottom:8px;">One entry per line: <b>Specialist, Service, YYYY-MM-DD, Client Name</b> (client name optional, but include it whenever known)</div>
@@ -1469,6 +1468,7 @@ Thank you!`;
       <button class="btn" id="bulk-import-btn" style="margin-top:8px;">Import all</button>
       <div id="bulk-import-result" style="font-size:11px;margin-top:8px;"></div>
     </div>
+    ${logListHtml}
     <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Log a single completed service</div>
       <div style="display:flex;flex-direction:column;gap:10px;">
