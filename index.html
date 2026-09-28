@@ -1443,11 +1443,14 @@ Thank you!`;
     const reportsEl = document.getElementById("reports-view");
     reportsEl.innerHTML = `<div class="status-line">Loading orders…</div>`;
 
+    const openDraftTimes = {};
     try {
       const openDraftsSnap = await getDocs(openDraftsColRef);
       openDraftsSnap.forEach(d => {
         const data = d.data();
-        activeDraftKeys.add(`${data.specialistId}::${data.orderId}`);
+        const key = `${data.specialistId}::${data.orderId}`;
+        activeDraftKeys.add(key);
+        openDraftTimes[key] = data.openedAt;
       });
     } catch (e) { console.error("Couldn't load open drafts", e); }
 
@@ -1564,6 +1567,42 @@ Thank you!`;
         return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 0;border-bottom:1px solid rgba(44,32,22,0.06);">
           <span>${r.specialistName} — Order #${(r.orderIndex || 0) + 1} — $${(r.charge || 0).toFixed(2)} — saved ${savedDateStr}</span>
           <button data-delete-saved-report="${r.id}" style="background:transparent;color:var(--error);border:none;font-size:15px;line-height:1;cursor:pointer;padding:2px 6px;">×</button>
+        </div>`;
+      }).join("")}
+    </div>`;
+
+    // ---------- Reports that were generated but never saved ----------
+    const unsavedDrafts = [];
+    Array.from(activeDraftKeys).forEach(key => {
+      const [sid, oid] = key.split("::");
+      const orderIdx = allOrdersCache.findIndex(o => o.id === oid);
+      // A draft only counts as saved if a report was saved AFTER it was generated.
+      // (A draft regenerated after an earlier save is a new, unsaved version.)
+      const latestSavedMs = savedReportsCache
+        .filter(r => r.specialistId === sid && r.orderId === oid)
+        .reduce((mx, r) => Math.max(mx, r.savedAt?.toMillis ? r.savedAt.toMillis() : 0), 0);
+      const openedMs = openDraftTimes[key]?.toMillis ? openDraftTimes[key].toMillis() : Infinity;
+      const alreadySaved = latestSavedMs > 0 && latestSavedMs >= openedMs;
+      if (orderIdx === -1 || alreadySaved) {
+        // stale leftover (report was saved after it, or its order no longer exists) — tidy it away
+        activeDraftKeys.delete(key);
+        deleteDoc(doc(db, "open-drafts", key)).catch(e => console.error(e));
+        return;
+      }
+      unsavedDrafts.push({ key, specialistId: sid, orderNumber: orderIdx + 1, openedAt: openDraftTimes[key] });
+    });
+    const unsavedHtml = unsavedDrafts.length === 0 ? "" : `<div style="background:#fdf1ee;border:2px solid var(--error);border-radius:10px;padding:14px 16px;margin-bottom:18px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:20px;color:var(--error);margin-bottom:2px;">${unsavedDrafts.length} unsaved report${unsavedDrafts.length > 1 ? "s" : ""}</div>
+      <div style="font-size:11.5px;opacity:0.75;margin-bottom:8px;line-height:1.5;">These were generated but never saved, so the specialist can't see them in her My Report tab yet. Save (or discard) ${unsavedDrafts.length > 1 ? "these" : "this"} before you start the next batch.</div>
+      ${unsavedDrafts.map(d => {
+        const sp = SPECIALISTS.find(x => x.id === d.specialistId);
+        const when = d.openedAt?.toDate ? d.openedAt.toDate().toLocaleDateString() : "";
+        return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid rgba(180,60,40,0.18);flex-wrap:wrap;">
+          <span style="font-size:12.5px;"><b>${sp ? sp.name : d.specialistId}</b> — Order #${d.orderNumber}${when ? ` — generated ${when}` : ""}</span>
+          <span style="display:flex;gap:6px;">
+            <button class="btn-sm" data-review-draft="${d.key}" style="background:var(--error);color:white;border:none;">Review & save</button>
+            <button class="btn-sm" data-discard-open-draft="${d.key}" style="background:transparent;color:var(--error);border:1px solid var(--error);">Discard</button>
+          </span>
         </div>`;
       }).join("")}
     </div>`;
@@ -1695,7 +1734,7 @@ Thank you!`;
       : "";
 
     let stepBody = "";
-    if (reportsStep === 1) stepBody = periodBanner + savedReportsListHtml;
+    if (reportsStep === 1) stepBody = unsavedHtml + periodBanner + savedReportsListHtml;
     else if (reportsStep === 2) stepBody = bulkImportHtml + singleLogHtml + logListHtml;
     else if (reportsStep === 3) stepBody = receiptsStepHtml;
     else if (reportsStep === 4) stepBody = editStepHtml;
@@ -1864,6 +1903,24 @@ Thank you!`;
     if (wizOrderSelect) wizOrderSelect.addEventListener("change", () => { wizardOrderId = wizOrderSelect.value; renderReports(); });
     const reportOrderSelect = document.getElementById("report-order");
     if (reportOrderSelect) reportOrderSelect.addEventListener("change", () => { wizardOrderId = reportOrderSelect.value; });
+
+    // ---- Unsaved-report alert (step 1) ----
+    reportsEl.querySelectorAll("[data-review-draft]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const [, oid] = btn.dataset.reviewDraft.split("::");
+        wizardOrderId = oid;
+        goToStep(5);
+      });
+    });
+    reportsEl.querySelectorAll("[data-discard-open-draft]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.discardOpenDraft;
+        activeDraftKeys.delete(key);
+        deleteDoc(doc(db, "open-drafts", key)).catch(e => console.error(e));
+        flashToast("Discarded — you can regenerate it any time");
+        renderReports();
+      });
+    });
 
     // ---- Step 3: receipts ----
     const wizReceiptInput = document.getElementById("wizard-receipt-input");
