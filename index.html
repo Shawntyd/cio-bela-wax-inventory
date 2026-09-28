@@ -1266,6 +1266,8 @@ Thank you!`;
   }
 
   let allOrdersCache = [];
+  let reportsStep = 1;
+  let wizardOrderId = null;
   let activeDraftKeys = new Set();
 
   function renderLogRows(logs, billedSignatures) {
@@ -1381,10 +1383,27 @@ Thank you!`;
       allOrdersCache = [];
     }
 
+    // The order everything in steps 3-5 applies to (defaults to the most recent one)
+    if (!wizardOrderId || !allOrdersCache.some(o => o.id === wizardOrderId)) {
+      wizardOrderId = allOrdersCache.length ? allOrdersCache[allOrdersCache.length - 1].id : null;
+    }
+    const wizardOrder = allOrdersCache.find(o => o.id === wizardOrderId) || null;
+    const wizardOrderIdx = allOrdersCache.findIndex(o => o.id === wizardOrderId);
+
+    let wizardReceipts = [];
+    if ((reportsStep === 3 || reportsStep === 4) && wizardOrderId) {
+      try {
+        const rSnap = await getDocs(receiptsColRef);
+        rSnap.forEach(d => {
+          const x = d.data();
+          if (x.orderId === wizardOrderId) wizardReceipts.push({ id: d.id, ...x });
+        });
+      } catch (e) { console.error("Couldn't load receipts", e); }
+    }
+
     const orderOptions = allOrdersCache.map((o, idx) => {
       const dateStr = o.orderedAt?.toDate ? o.orderedAt.toDate().toLocaleDateString() : "unknown date";
-      const isMostRecent = idx === allOrdersCache.length - 1;
-      return `<option value="${o.id}" ${isMostRecent ? "selected" : ""}>Order #${idx + 1} — ${dateStr} — $${(o.total || 0).toFixed(2)}</option>`;
+      return `<option value="${o.id}" ${o.id === wizardOrderId ? "selected" : ""}>Order #${idx + 1} — ${dateStr} — $${(o.total || 0).toFixed(2)}</option>`;
     }).join("");
 
     const lastOrder = allOrdersCache[allOrdersCache.length - 1];
@@ -1460,16 +1479,15 @@ Thank you!`;
       }).join("")}
     </div>`;
 
-    let html = periodBanner + savedReportsListHtml + `<div class="note" style="margin-bottom:16px;">Ask Claude to check the calendars and hand you a paste block — drop it in below and it logs everything at once. Use the single form underneath for one-off entries.</div>
-    <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+    const bulkImportHtml = `    <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Bulk import from Claude</div>
       <div style="font-size:11px;opacity:0.6;margin-bottom:8px;">One entry per line: <b>Specialist, Service, YYYY-MM-DD, Client Name</b> (client name optional, but include it whenever known)</div>
       <textarea id="bulk-import-text" rows="5" placeholder="Zoey, Brazilian Wax, 2026-08-08, Madi Tager&#10;Mia, Underarm Wax, 2026-09-10, Miriam Lopez" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;font-size:12px;resize:vertical;"></textarea>
       <button class="btn" id="bulk-import-btn" style="margin-top:8px;">Import all</button>
       <div id="bulk-import-result" style="font-size:11px;margin-top:8px;"></div>
     </div>
-    ${logListHtml}
-    <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+`;
+    const singleLogHtml = `    <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Log a single completed service</div>
       <div style="display:flex;flex-direction:column;gap:10px;">
         <select id="log-specialist" style="padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;">
@@ -1483,7 +1501,8 @@ Thank you!`;
         <button class="btn" id="log-service-btn" style="align-self:flex-start;">Add to log</button>
       </div>
     </div>
-    <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+`;
+    const generateHtml = `    <div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:17px;color:var(--bark);margin-bottom:10px;">Generate a report</div>
       ${allOrdersCache.length === 0
         ? `<div style="font-size:12px;opacity:0.6;">No orders in history yet — place one via "Mark ordered" on the Owner Dashboard first.</div>`
@@ -1498,11 +1517,108 @@ Thank you!`;
           </div>`
       }
     </div>
-    <div id="report-output"></div>`;
+`;
+
+    // ---------- Step 3: receipts ----------
+    const orderPickerHtml = allOrdersCache.length === 0 ? "" : `<div style="margin-bottom:12px;">
+      <div style="font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.6;margin-bottom:4px;">Order you're billing</div>
+      <select id="wizard-order-select" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--gold-light);font-family:'Jost',sans-serif;">${orderOptions}</select>
+    </div>`;
+
+    const receiptsStepHtml = allOrdersCache.length === 0
+      ? `<div class="empty-box"><div class="empty-sub">No orders yet — place one via "Mark ordered" on the Owner Dashboard first.</div></div>`
+      : `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+        ${orderPickerHtml}
+        <div style="font-size:12px;opacity:0.65;margin-bottom:10px;">${wizardReceipts.length === 0 ? "No receipts uploaded for this order yet." : `${wizardReceipts.length} receipt photo${wizardReceipts.length > 1 ? "s" : ""} uploaded — tap one to enlarge.`}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          ${wizardReceipts.map(r => `<span style="position:relative;display:inline-block;">
+            <img src="${r.imageData}" class="receipt-thumb" style="width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--gold-light);display:block;cursor:pointer;" />
+            <button data-wizard-delete-receipt="${r.id}" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--error);color:white;border:none;font-size:12px;line-height:1;cursor:pointer;">×</button>
+          </span>`).join("")}
+        </div>
+        <label class="btn" style="cursor:pointer;display:inline-block;">Add receipt photos
+          <input type="file" accept="image/*" multiple id="wizard-receipt-input" style="display:none;" />
+        </label>
+        <div style="font-size:11px;opacity:0.55;margin-top:8px;">Tip: screenshot each order confirmation, then select them all at once.</div>
+      </div>`;
+
+    // ---------- Step 4: edit to match receipts ----------
+    const wizItems = wizardOrder?.items || [];
+    const alreadySavedForOrder = savedReportsCache.some(r => r.orderId === wizardOrderId);
+    const editStepHtml = !wizardOrder
+      ? `<div class="empty-box"><div class="empty-sub">No orders yet — nothing to edit.</div></div>`
+      : `<div style="background:white;border:1px solid rgba(44,32,22,0.1);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+        ${orderPickerHtml}
+        ${alreadySavedForOrder ? `<div style="background:#fff8e8;border:1px dashed var(--gold);border-radius:8px;padding:8px 10px;font-size:11.5px;margin-bottom:12px;">Heads up: a report for this order is already saved. Saved reports keep the numbers they were saved with — after editing, delete and re-save them so they match.</div>` : ""}
+        <div style="display:flex;justify-content:space-between;font-size:12px;padding:8px 10px;background:rgba(44,32,22,0.04);border-radius:8px;margin-bottom:12px;flex-wrap:wrap;gap:6px;">
+          <span>Subtotal <b>$${(wizardOrder.subtotal ?? 0).toFixed(2)}</b></span>
+          <span>Tax <b>$${(wizardOrder.tax ?? 0).toFixed(2)}</b></span>
+          <span>Shipping <b>$${(wizardOrder.shipping ?? 0).toFixed(2)}</b></span>
+          <span>Total <b>$${(wizardOrder.total ?? 0).toFixed(2)}</b></span>
+        </div>
+        ${wizardReceipts.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+          ${wizardReceipts.map(r => `<img src="${r.imageData}" class="receipt-thumb" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--gold-light);cursor:pointer;" />`).join("")}
+          <span style="font-size:11px;opacity:0.55;align-self:center;">Tap to enlarge while you edit</span>
+        </div>` : `<div style="font-size:11px;opacity:0.55;margin-bottom:12px;">No receipts uploaded for this order — go Back a step to add them.</div>`}
+        <div style="background:rgba(184,147,90,0.08);border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:11px;">
+          <div style="opacity:0.75;margin-bottom:6px;">Items on the same receipt share one shipping + tax charge: check them, enter that receipt's totals, and split.</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:2px;">Shipping $<input type="text" inputmode="decimal" placeholder="0.00" id="wiz-bundle-shipping" style="width:56px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
+            <label style="display:flex;align-items:center;gap:2px;">Tax $<input type="text" inputmode="decimal" placeholder="0.00" id="wiz-bundle-tax" style="width:56px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
+            <button type="button" class="btn-sm" id="wiz-apply-bundle" style="background:var(--gold);color:var(--charcoal);border:none;">Split across checked</button>
+          </div>
+        </div>
+        <div id="wizard-edit-lines">
+          ${wizItems.map((i, idx) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12px;flex-wrap:wrap;border-bottom:1px solid rgba(44,32,22,0.06);">
+            <input type="checkbox" class="wiz-bundle-select" data-idx="${idx}" style="width:15px;height:15px;flex-shrink:0;" />
+            <span style="flex:1;min-width:110px;">${i.name} × ${i.qty}</span>
+            <label style="display:flex;align-items:center;gap:2px;opacity:0.8;">Price $<input type="text" inputmode="decimal" value="${(i.price || 0).toFixed(2)}" data-wiz-price="${idx}" style="width:52px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
+            <label style="display:flex;align-items:center;gap:2px;opacity:0.8;">Ship $<input type="text" inputmode="decimal" value="${(i.shipping || 0).toFixed(2)}" data-wiz-shipping="${idx}" style="width:52px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
+            <label style="display:flex;align-items:center;gap:2px;opacity:0.8;">Tax $<input type="text" inputmode="decimal" value="${(i.tax || 0).toFixed(2)}" data-wiz-tax="${idx}" style="width:52px;border:none;border-bottom:1px solid var(--gold-light);outline:none;background:transparent;font-size:12px;" /></label>
+          </div>`).join("")}
+        </div>
+        <button class="btn" id="wiz-save-edit-btn" style="margin-top:14px;">Save changes</button>
+      </div>`;
+
+    // ---------- The guided flow ----------
+    const STEP_INFO = [
+      null,
+      { title: "Get the services from Claude", help: "Copy the request, open your Claude chat, paste it in, and wait for the paste block. Then check what's already been saved below.", next: "Add services" },
+      { title: "Add the services", help: "Paste Claude's block into Bulk import and tap Import all. Add or fix anything else below, then check the list looks right.", next: "Upload receipts" },
+      { title: "Upload the receipts", help: "Add photos of the order confirmations and receipts for the order you're billing.", next: "Edit to match receipts" },
+      { title: "Edit to match receipts", help: "Make each item's price, shipping, and tax match the receipts so the order total is exact before you generate reports.", next: "Generate reports" },
+      { title: "Generate reports", help: "Generate a draft for each specialist, send it to her, and Save & finalize once she confirms.", next: "" },
+    ];
+    const info = STEP_INFO[reportsStep];
+    const wizardHeader = `<div style="margin-bottom:18px;">
+      <div style="display:flex;gap:4px;margin-bottom:10px;">
+        ${[1, 2, 3, 4, 5].map(n => `<div style="flex:1;height:4px;border-radius:2px;background:${n <= reportsStep ? "var(--gold)" : "rgba(44,32,22,0.12)"};"></div>`).join("")}
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <div style="font-size:10.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--gold);">Step ${reportsStep} of 5</div>
+        ${reportsStep > 1 ? `<button data-reports-back style="background:transparent;border:none;color:var(--bark);opacity:0.7;font-size:12px;text-decoration:underline;cursor:pointer;">← Back</button>` : ""}
+      </div>
+      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:24px;color:var(--bark);margin-top:2px;">${info.title}</div>
+      <div style="font-size:12px;opacity:0.65;margin-top:4px;line-height:1.5;">${info.help}</div>
+    </div>`;
+    const wizardNav = reportsStep < 5
+      ? `<div style="display:flex;justify-content:flex-end;margin:6px 0 24px;"><button class="btn" data-reports-next>Next: ${info.next} →</button></div>`
+      : "";
+
+    let stepBody = "";
+    if (reportsStep === 1) stepBody = periodBanner + savedReportsListHtml;
+    else if (reportsStep === 2) stepBody = bulkImportHtml + singleLogHtml + logListHtml;
+    else if (reportsStep === 3) stepBody = receiptsStepHtml;
+    else if (reportsStep === 4) stepBody = editStepHtml;
+    else stepBody = generateHtml + `<div id="report-output"></div>`;
+
+    let html = wizardHeader + stepBody + wizardNav;
 
     reportsEl.innerHTML = html;
 
-    document.getElementById("copy-claude-request-btn").addEventListener("click", async () => {
+    const on = (id, evt, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(evt, fn); };
+
+    on("copy-claude-request-btn", "click", async () => {
       try {
         await navigator.clipboard.writeText(claudeRequestText);
         flashToast(claudeChatLink ? "Copied — now tap “Open Claude chat” and paste" : "Copied — paste it to Claude");
@@ -1519,10 +1635,10 @@ Thank you!`;
         document.getElementById("claude-link-input").focus();
       });
     }
-    document.getElementById("cancel-claude-link-btn").addEventListener("click", () => {
+    on("cancel-claude-link-btn", "click", () => {
       claudeLinkEditor.classList.add("hidden");
     });
-    document.getElementById("save-claude-link-btn").addEventListener("click", async () => {
+    on("save-claude-link-btn", "click", async () => {
       const raw = document.getElementById("claude-link-input").value.trim();
       let clean = "";
       let isShareLink = false;
@@ -1579,7 +1695,7 @@ Thank you!`;
       });
     });
 
-    document.getElementById("bulk-import-btn").addEventListener("click", async () => {
+    on("bulk-import-btn", "click", async () => {
       const resultEl = document.getElementById("bulk-import-result");
       const text = document.getElementById("bulk-import-text").value.trim();
       if (!text) return;
@@ -1622,7 +1738,7 @@ Thank you!`;
       }
     });
 
-    document.getElementById("log-service-btn").addEventListener("click", async () => {
+    on("log-service-btn", "click", async () => {
       const specialistId = document.getElementById("log-specialist").value;
       const serviceId = document.getElementById("log-service").value;
       const date = document.getElementById("log-date").value;
@@ -1646,11 +1762,99 @@ Thank you!`;
       });
     }
 
-    // Restore any drafts that were open before this refresh (e.g. from editing a log entry)
-    Array.from(activeDraftKeys).forEach(key => {
-      const [sid, oid] = key.split("::");
-      generateReport(sid, oid);
+    // ---- Guided step navigation ----
+    const goToStep = async (n) => {
+      reportsStep = Math.max(1, Math.min(5, n));
+      await renderReports();
+      document.querySelector(".wrap").scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    reportsEl.querySelectorAll("[data-reports-next]").forEach(b => b.addEventListener("click", () => goToStep(reportsStep + 1)));
+    reportsEl.querySelectorAll("[data-reports-back]").forEach(b => b.addEventListener("click", () => goToStep(reportsStep - 1)));
+
+    const wizOrderSelect = document.getElementById("wizard-order-select");
+    if (wizOrderSelect) wizOrderSelect.addEventListener("change", () => { wizardOrderId = wizOrderSelect.value; renderReports(); });
+    const reportOrderSelect = document.getElementById("report-order");
+    if (reportOrderSelect) reportOrderSelect.addEventListener("change", () => { wizardOrderId = reportOrderSelect.value; });
+
+    // ---- Step 3: receipts ----
+    const wizReceiptInput = document.getElementById("wizard-receipt-input");
+    if (wizReceiptInput) {
+      wizReceiptInput.addEventListener("change", async () => {
+        const files = Array.from(wizReceiptInput.files || []);
+        if (files.length === 0 || !wizardOrderId) return;
+        flashToast(`Saving ${files.length} receipt${files.length > 1 ? "s" : ""}…`);
+        try {
+          for (const file of files) {
+            const imageData = await compressImage(file);
+            await addDoc(receiptsColRef, { orderId: wizardOrderId, imageData, fileName: file.name, uploadedAt: serverTimestamp() });
+          }
+          flashToast("Receipts saved");
+          renderReports();
+        } catch (e) {
+          console.error("Couldn't save receipts", e);
+          flashToast("Couldn't save — image may be too large or connection dropped");
+        }
+      });
+    }
+    reportsEl.querySelectorAll("[data-wizard-delete-receipt]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        try {
+          await deleteDoc(doc(db, "receipts", btn.dataset.wizardDeleteReceipt));
+          renderReports();
+        } catch (e) {
+          console.error("Couldn't delete receipt", e);
+          flashToast("Couldn't delete receipt");
+        }
+      });
     });
+
+    // ---- Step 4: edit to match receipts ----
+    on("wiz-apply-bundle", "click", () => {
+      const checked = Array.from(document.querySelectorAll(".wiz-bundle-select:checked"));
+      if (checked.length === 0) { flashToast("Check at least one item first"); return; }
+      const shipTotal = parseFloat(document.getElementById("wiz-bundle-shipping").value) || 0;
+      const taxTotal = parseFloat(document.getElementById("wiz-bundle-tax").value) || 0;
+      const container = document.getElementById("wizard-edit-lines");
+      checked.forEach(cb => {
+        const idx = cb.dataset.idx;
+        const shipInput = container.querySelector(`[data-wiz-shipping="${idx}"]`);
+        const taxInput = container.querySelector(`[data-wiz-tax="${idx}"]`);
+        if (shipInput) shipInput.value = (shipTotal / checked.length).toFixed(2);
+        if (taxInput) taxInput.value = (taxTotal / checked.length).toFixed(2);
+      });
+      flashToast(`Split $${shipTotal.toFixed(2)} shipping + $${taxTotal.toFixed(2)} tax across ${checked.length} item${checked.length > 1 ? "s" : ""} — tap Save changes`);
+    });
+    on("wiz-save-edit-btn", "click", async () => {
+      const orderRef = doc(db, "orders", wizardOrderId);
+      const container = document.getElementById("wizard-edit-lines");
+      try {
+        const fresh = await getDoc(orderRef);
+        const items = (fresh.data().items || []).map((item, idx) => ({
+          ...item,
+          price: Math.max(0, parseFloat(container.querySelector(`[data-wiz-price="${idx}"]`)?.value) || 0),
+          shipping: Math.max(0, parseFloat(container.querySelector(`[data-wiz-shipping="${idx}"]`)?.value) || 0),
+          tax: Math.max(0, parseFloat(container.querySelector(`[data-wiz-tax="${idx}"]`)?.value) || 0),
+        }));
+        const subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
+        const tax = items.reduce((sum, i) => sum + i.tax, 0);
+        const shipping = items.reduce((sum, i) => sum + i.shipping, 0);
+        const total = subtotal + tax + shipping;
+        await setDoc(orderRef, { items, subtotal, tax, shipping, total }, { merge: true });
+        flashToast(`Saved — order total is now $${total.toFixed(2)}`);
+        renderReports();
+      } catch (e) {
+        console.error("Couldn't save order edit", e);
+        flashToast("Couldn't save — check connection");
+      }
+    });
+
+    // Restore any drafts that were open before this refresh — only on the generate step, where they show
+    if (reportsStep === 5) {
+      Array.from(activeDraftKeys).forEach(key => {
+        const [sid, oid] = key.split("::");
+        generateReport(sid, oid);
+      });
+    }
   }
 
   function getOrCreateDraftContainer(specialistId) {
@@ -2101,6 +2305,7 @@ Thank you!`;
       ownerViewEl.classList.add("hidden");
       if (unlocked || SKIP_PASSCODE) {
         ownerLockEl.classList.add("hidden");
+        reportsStep = 1;
         renderReports();
       } else {
         ownerLockEl.classList.remove("hidden");
@@ -2164,6 +2369,7 @@ Thank you!`;
         renderRecipes();
       } else if (view === "reports") {
         document.getElementById("reports-view").classList.remove("hidden");
+        reportsStep = 1;
         renderReports();
       } else {
         ownerViewEl.classList.remove("hidden");
